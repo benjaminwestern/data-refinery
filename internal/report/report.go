@@ -21,7 +21,7 @@ type LocationInfo struct {
 }
 
 // JSONData is a generic type for a single JSON object.
-type JSONData map[string]interface{}
+type JSONData map[string]any
 
 // FolderDetail holds aggregated metrics for a single folder/prefix.
 type FolderDetail struct {
@@ -38,28 +38,33 @@ type AnalysisReport struct {
 	Summary       SummaryReport             `json:"summary"`
 	DuplicateIDs  map[string][]LocationInfo `json:"duplicateIds"`
 	DuplicateRows map[string][]LocationInfo `json:"duplicateRows"`
+
+	// Advanced features
+	SearchResults any `json:"searchResults,omitempty"`
+	SchemaReport  any `json:"schemaReport,omitempty"`
+	DeletionStats any `json:"deletionStats,omitempty"`
 }
 
 // SummaryReport contains aggregated metrics from the analysis.
 type SummaryReport struct {
-	IsValidationReport        bool                      `json:"isValidationReport"`
-	IsPartialReport           bool                      `json:"isPartialReport"`
-	FilesProcessed            int32                     `json:"filesProcessed"`
-	TotalFiles                int                       `json:"totalFiles"`
-	ProcessedDataSizeBytes    int64                     `json:"processedDataSizeBytes"`
-	TotalDataSizeOverallBytes int64                     `json:"totalDataSizeOverallBytes"`
-	ProcessedDataSizeHuman    string                    `json:"processedDataSizeHuman"`
-	TotalDataSizeOverallHuman string                    `json:"totalDataSizeOverallHuman"`
-	TotalElapsedTime          string                    `json:"totalElapsedTime"`
-	TotalRowsProcessed        int64                     `json:"totalRowsProcessed"`
-	UniqueKey                 string                    `json:"uniqueKey"`
-	TotalKeyOccurrences       int                       `json:"totalKeyOccurrences"`
-	UniqueKeysDuplicated      int                       `json:"uniqueKeysDuplicated"`
-	DuplicateRowInstances     int                       `json:"duplicateRowInstances"`
-	AverageRowsPerFile        float64                   `json:"averageRowsPerFile"`
-	AverageFilesPerFolder     float64                   `json:"averageFilesPerFolder"`
-	DuplicateIDsPerFolder     map[string]int            `json:"duplicateIDsPerFolder"`
-	DuplicateRowsPerFolder    map[string]int            `json:"duplicateRowsPerFolder"`
+	IsValidationReport        bool                    `json:"isValidationReport"`
+	IsPartialReport           bool                    `json:"isPartialReport"`
+	FilesProcessed            int32                   `json:"filesProcessed"`
+	TotalFiles                int                     `json:"totalFiles"`
+	ProcessedDataSizeBytes    int64                   `json:"processedDataSizeBytes"`
+	TotalDataSizeOverallBytes int64                   `json:"totalDataSizeOverallBytes"`
+	ProcessedDataSizeHuman    string                  `json:"processedDataSizeHuman"`
+	TotalDataSizeOverallHuman string                  `json:"totalDataSizeOverallHuman"`
+	TotalElapsedTime          string                  `json:"totalElapsedTime"`
+	TotalRowsProcessed        int64                   `json:"totalRowsProcessed"`
+	UniqueKey                 string                  `json:"uniqueKey"`
+	TotalKeyOccurrences       int                     `json:"totalKeyOccurrences"`
+	UniqueKeysDuplicated      int                     `json:"uniqueKeysDuplicated"`
+	DuplicateRowInstances     int                     `json:"duplicateRowInstances"`
+	AverageRowsPerFile        float64                 `json:"averageRowsPerFile"`
+	AverageFilesPerFolder     float64                 `json:"averageFilesPerFolder"`
+	DuplicateIDsPerFolder     map[string]int          `json:"duplicateIDsPerFolder"`
+	DuplicateRowsPerFolder    map[string]int          `json:"duplicateRowsPerFolder"`
 	FolderDetails             map[string]FolderDetail `json:"folderDetails"`
 }
 
@@ -140,10 +145,18 @@ func (r *AnalysisReport) validationReportString(showFolderBreakdown bool) string
 			}
 			rows = append(rows, row)
 
-			if len(row.path) > maxWidths[0] { maxWidths[0] = len(row.path) }
-			if len(row.files) > maxWidths[1] { maxWidths[1] = len(row.files) }
-			if len(row.rows) > maxWidths[2] { maxWidths[2] = len(row.rows) }
-			if len(row.keys) > maxWidths[3] { maxWidths[3] = len(row.keys) }
+			if len(row.path) > maxWidths[0] {
+				maxWidths[0] = len(row.path)
+			}
+			if len(row.files) > maxWidths[1] {
+				maxWidths[1] = len(row.files)
+			}
+			if len(row.rows) > maxWidths[2] {
+				maxWidths[2] = len(row.rows)
+			}
+			if len(row.keys) > maxWidths[3] {
+				maxWidths[3] = len(row.keys)
+			}
 		}
 
 		headerFormat := fmt.Sprintf("%%-%ds | %%-%ds | %%-%ds | %%-%ds", maxWidths[0], maxWidths[1], maxWidths[2], maxWidths[3])
@@ -207,7 +220,7 @@ func (r *AnalysisReport) analysisReportString(isFullReport bool, checkKey, check
 
 		for _, folder := range sortedFolders {
 			detail := s.FolderDetails[folder]
-			
+
 			var dataStr, filesStr string
 			if s.IsPartialReport {
 				dataStr = fmt.Sprintf("%s / %s", HumanSize(detail.ProcessedSizeBytes), HumanSize(detail.TotalSizeBytes))
@@ -236,17 +249,33 @@ func (r *AnalysisReport) analysisReportString(isFullReport bool, checkKey, check
 				dupeRows: fmt.Sprintf("%d", rowCount),
 			}
 			rows = append(rows, row)
-			
-			if len(row.path) > maxWidths[0] { maxWidths[0] = len(row.path) }
-			if len(row.data) > maxWidths[1] { maxWidths[1] = len(row.data) }
-			if len(row.files) > maxWidths[2] { maxWidths[2] = len(row.files) }
-			if len(row.avgRows) > maxWidths[3] { maxWidths[3] = len(row.avgRows) }
-			if len(row.rows) > maxWidths[4] { maxWidths[4] = len(row.rows) }
-			if len(row.keys) > maxWidths[5] { maxWidths[5] = len(row.keys) }
-			if len(row.dupeIDs) > maxWidths[6] { maxWidths[6] = len(row.dupeIDs) }
-			if len(row.dupeRows) > maxWidths[7] { maxWidths[7] = len(row.dupeRows) }
+
+			if len(row.path) > maxWidths[0] {
+				maxWidths[0] = len(row.path)
+			}
+			if len(row.data) > maxWidths[1] {
+				maxWidths[1] = len(row.data)
+			}
+			if len(row.files) > maxWidths[2] {
+				maxWidths[2] = len(row.files)
+			}
+			if len(row.avgRows) > maxWidths[3] {
+				maxWidths[3] = len(row.avgRows)
+			}
+			if len(row.rows) > maxWidths[4] {
+				maxWidths[4] = len(row.rows)
+			}
+			if len(row.keys) > maxWidths[5] {
+				maxWidths[5] = len(row.keys)
+			}
+			if len(row.dupeIDs) > maxWidths[6] {
+				maxWidths[6] = len(row.dupeIDs)
+			}
+			if len(row.dupeRows) > maxWidths[7] {
+				maxWidths[7] = len(row.dupeRows)
+			}
 		}
-		
+
 		headerFormat := fmt.Sprintf("%%-%ds | %%-%ds | %%-%ds | %%-%ds | %%-%ds | %%-%ds | %%-%ds | %%-%ds", maxWidths[0], maxWidths[1], maxWidths[2], maxWidths[3], maxWidths[4], maxWidths[5], maxWidths[6], maxWidths[7])
 		headerLine := fmt.Sprintf(headerFormat, headers[0], headers[1], headers[2], headers[3], headers[4], headers[5], headers[6], headers[7])
 		tableContent.WriteString(tableHeaderStyle.Render(headerLine) + "\n")
@@ -294,7 +323,6 @@ func (r *AnalysisReport) analysisReportString(isFullReport bool, checkKey, check
 	}
 	return b.String()
 }
-
 
 // ToJSON converts the report to a JSON string.
 func (r *AnalysisReport) ToJSON() (string, error) {

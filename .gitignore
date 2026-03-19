@@ -28,7 +28,9 @@ go.work.sum
 .env
 
 logs/
-config/
+/config
+/config.json
+marked_customers.jsonl
 
 # MacOS
 .DS_Store

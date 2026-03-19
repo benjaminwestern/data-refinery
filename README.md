@@ -20,6 +20,7 @@ Gemini also wrote this readme because I was lazy...
 * **Multi-Source Support:** Analyse files from local directories and Google Cloud Storage (GCS) buckets in the same run.
 * **Flexible Analysis:** Find duplicates based on a specific JSON key (`-key`) or by hashing the entire content of each row.
 * **Data Profiling:** A fast "Validator" mode to quickly check for the presence and count of a key across all files before running a full analysis.
+* **Advanced Matching and Cleanup:** Configure targeted search, schema discovery, selective hashing, and deletion rules for more complex deduplication workflows.
 * **Robust Session Management:** Cancel, continue, and restart analysis jobs from within the TUI.
 * **Comprehensive Reporting:** Detailed summary reports and per-folder breakdown tables give a clear overview of the results.
 * **Intelligent Path Handling:** Automatically de-duplicates sources when overlapping paths (e.g., `./data` and `../project/data`) are provided.
@@ -73,6 +74,16 @@ You will be greeted with a main menu that allows you to:
 
 6. **Options Menu:** Configure all settings interactively.
     ![Options Menu](assets/config_menu.png)
+
+### Advanced configuration
+
+For more complex workflows, you can define advanced behavior in your config file.
+This lets you combine targeted search, schema discovery, selective hashing, and
+deletion rules in a single run.
+
+See `examples/ADVANCED_FEATURES.md` for a full walkthrough and sample configs in
+`examples/advanced_config.json`, `examples/schema_only_config.json`, and
+`examples/selective_hash_config.json`.
 
 #### TUI Keybindings
 
@@ -140,10 +151,6 @@ On first run, or when options are changed in the TUI, a configuration file is cr
 
 * **Analyser Mode:** The deep-dive mode. It performs the same initial checks as the validator but additionally stores the locations of every key and a hash of every row in memory to find duplicates. This is more memory-intensive and is intended for finding specific duplicate entries after the data has been profiled.
 
-Of course. Here is a section for the `README.md` that explains the "Continue" functionality.
-
----
-
 ### Intelligent Session Management: Continue, Restart, and New
 
 The TUI provides robust session management to handle interruptions and different analysis workflows:
@@ -160,16 +167,21 @@ The TUI provides robust session management to handle interruptions and different
 
 ### Purging Duplicates
 
-> **Note:** The interactive purge functionality is currently undergoing a refactor to improve its reliability and is temporarily bugged. This will be fixed in an upcoming release.
+When a full analysis on local files finds duplicates, you can press `(p)` to enter the interactive purge workflow. For each set of duplicates, you will be prompted to select the one record you wish to keep. All other records in that set will be moved to a `deleted_records` directory in the current working directory with comprehensive backup and transaction management, and the original file will be overwritten.
 
-When a full analysis on local files finds duplicates, you can press `(p)` to enter the interactive purge workflow. For each set of duplicates, you will be prompted to select the one record you wish to keep. All other records in that set will be moved to a `deleted_records` directory in the current working directory, and the original file will be overwritten.
+The purging system includes:
+
+- **Transaction Safety**: All operations are atomic with rollback capability
+- **Comprehensive Backup**: Deleted records are stored with metadata for recovery
+- **Error Handling**: Graceful handling of malformed JSON and file access errors
+- **Validation**: Optional integrity validation of processed files
+- **Transaction Logging**: Full audit trail of all purge operations
 
 ## Future Development
 
 This tool is under active development. Features on the roadmap include:
 
-* **Fix Purge Functionality:** Resolve the current bug in the interactive purge workflow.
-* **GCS Purge Functionality:** Implement a mechanism to purge duplicates from GCS files (e.g., download, purge, and re-upload/overwrite).
+* **GCS Purge Functionality:** Implement a mechanism to purge duplicates from GCS files (for example, download, purge, and re-upload or overwrite).
 * **TUI Polish:** Minor improvements to formatting and layout for even clearer presentation.
 * **Performance Optimisation:** Further profiling of goroutine usage for file and row processing to maximise efficiency.
 * **Test Coverage:** Introduction of a comprehensive suite of unit and integration tests to improve stability and encourage community contributions.

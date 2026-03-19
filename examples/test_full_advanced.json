@@ -1,0 +1,32 @@
+{
+  "path": "./test_data",
+  "key": "id", 
+  "workers": 4,
+  "logPath": "logs",
+  "checkKey": true,
+  "checkRow": true,
+  "showFolderBreakdown": true,
+  "enableTxtOutput": true,
+  "enableJsonOutput": true,
+  "advanced": {
+    "searchTargets": [
+      {
+        "name": "customer_search",
+        "type": "direct",
+        "path": "customer_id",
+        "targetValues": ["cust-123"],
+        "caseSensitive": false
+      }
+    ],
+    "hashingStrategy": {
+      "mode": "selective",
+      "includeKeys": ["id", "customer_id"]
+    },
+    "schemaDiscovery": {
+      "enabled": true,
+      "samplePercent": 0.1,
+      "maxDepth": 3,
+      "maxSamples": 100
+    }
+  }
+}

@@ -80,7 +80,9 @@ type LocalFileSource struct {
 func (lfs LocalFileSource) Path() string { return lfs.filePath }
 
 // Open returns an os.File reader.
-func (lfs LocalFileSource) Open(_ context.Context) (io.ReadCloser, error) { return os.Open(lfs.filePath) }
+func (lfs LocalFileSource) Open(_ context.Context) (io.ReadCloser, error) {
+	return os.Open(lfs.filePath)
+}
 
 // Dir returns the containing directory of the file.
 func (lfs LocalFileSource) Dir() string { return filepath.Dir(lfs.filePath) }
@@ -90,26 +92,61 @@ func (lfs LocalFileSource) Size() int64 { return lfs.size }
 
 // GCSObjectSource implements InputSource for Google Cloud Storage objects.
 type GCSObjectSource struct {
-	bucket *storage.BucketHandle
-	object *storage.ObjectAttrs
+	bucketName string
+	objectName string
+	size       int64
 }
 
 // Path returns the full gs:// URI for the object.
 func (gcs GCSObjectSource) Path() string {
-	return fmt.Sprintf("gs://%s/%s", gcs.object.Bucket, gcs.object.Name)
+	return fmt.Sprintf("gs://%s/%s", gcs.bucketName, gcs.objectName)
 }
 
 // Open returns a new streaming reader for the GCS object.
 func (gcs GCSObjectSource) Open(ctx context.Context) (io.ReadCloser, error) {
-	return gcs.bucket.Object(gcs.object.Name).NewReader(ctx)
+	client, err := storage.NewClient(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GCS client: %w", err)
+	}
+
+	reader, err := client.Bucket(gcs.bucketName).Object(gcs.objectName).NewReader(ctx)
+	if err != nil {
+		client.Close()
+		return nil, err
+	}
+
+	return &gcsReadCloser{reader: reader, client: client}, nil
 }
 
 // Dir returns the containing "directory" (prefix) of the object within its bucket.
-func (gcs GCSObjectSource) Dir() string { return filepath.Dir(gcs.Path()) }
+func (gcs GCSObjectSource) Dir() string {
+	if idx := strings.LastIndex(gcs.objectName, "/"); idx >= 0 {
+		return fmt.Sprintf("gs://%s/%s", gcs.bucketName, gcs.objectName[:idx])
+	}
+	return fmt.Sprintf("gs://%s", gcs.bucketName)
+}
 
 // Size returns the size of the GCS object in bytes.
 func (gcs GCSObjectSource) Size() int64 {
-	return gcs.object.Size
+	return gcs.size
+}
+
+type gcsReadCloser struct {
+	reader *storage.Reader
+	client *storage.Client
+}
+
+func (g *gcsReadCloser) Read(p []byte) (int, error) {
+	return g.reader.Read(p)
+}
+
+func (g *gcsReadCloser) Close() error {
+	readerErr := g.reader.Close()
+	clientErr := g.client.Close()
+	if readerErr != nil {
+		return readerErr
+	}
+	return clientErr
 }
 
 func discoverGCSObjects(ctx context.Context, path string) ([]InputSource, error) {
@@ -164,7 +201,11 @@ func discoverGCSObjects(ctx context.Context, path string) ([]InputSource, error)
 			continue
 		}
 		if allowedMimeTypes[attrs.ContentType] {
-			sources = append(sources, GCSObjectSource{bucket: bucket, object: attrs})
+			sources = append(sources, GCSObjectSource{
+				bucketName: bucketName,
+				objectName: attrs.Name,
+				size:       attrs.Size,
+			})
 		}
 	}
 	if len(sources) == 0 {

@@ -87,6 +87,7 @@ func main() {
 		}
 
 		headlessCfg := &headless.Config{
+			AppConfig:           cfg,
 			Paths:               cfg.Path,
 			Key:                 cfg.Key,
 			Workers:             cfg.Workers,

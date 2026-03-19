@@ -1,0 +1,28 @@
+{
+  "path": "/path/to/data",
+  "key": "id", 
+  "workers": 4,
+  "logPath": "logs",
+  "checkKey": false,
+  "checkRow": false,
+  "showFolderBreakdown": false,
+  "enableTxtOutput": false,
+  "enableJsonOutput": true,
+  "purgeIds": false,
+  "purgeRows": false,
+  "advanced": {
+    "searchTargets": [],
+    "hashingStrategy": {
+      "mode": "full_row"
+    },
+    "deletionRules": [],
+    "schemaDiscovery": {
+      "enabled": true,
+      "samplePercent": 0.05,
+      "maxDepth": 10,
+      "maxSamples": 100000,
+      "outputFormats": ["json", "csv", "yaml"],
+      "groupByFolder": true
+    }
+  }
+}

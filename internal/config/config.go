@@ -1,0 +1,688 @@
+// internal/config/config.go
+package config
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+)
+
+const (
+	configDir  = "config"
+	configFile = "config.json"
+)
+
+// Config holds all user-configurable settings for the application.
+type Config struct {
+	Path                string `json:"path"`
+	Key                 string `json:"key"`
+	Workers             int    `json:"workers"`
+	LogPath             string `json:"logPath"`
+	CheckKey            bool   `json:"checkKey"`
+	CheckRow            bool   `json:"checkRow"`
+	ValidateOnly        bool   `json:"validateOnly"`
+	IsValidationRun     bool   `json:"isValidationRun"`
+	ShowFolderBreakdown bool   `json:"showFolderBreakdown"`
+	EnableTxtOutput     bool   `json:"enableTxtOutput"`
+	EnableJsonOutput    bool   `json:"enableJsonOutput"`
+	PurgeIDs            bool   `json:"purgeIds"`
+	PurgeRows           bool   `json:"purgeRows"`
+	GCSAvailable        bool   `json:"-"` // Runtime flag, not saved to config file.
+
+	// Advanced features
+	Advanced *AdvancedConfig `json:"advanced,omitempty"`
+
+	// Performance configuration
+	Performance *PerformanceConfig `json:"performance,omitempty"`
+
+	// Error handling configuration
+	ErrorHandling *ErrorHandlingConfig `json:"errorHandling,omitempty"`
+
+	// State management configuration
+	StateManagement *StateManagementConfig `json:"stateManagement,omitempty"`
+
+	// Memory management configuration
+	MemoryManagement *MemoryManagementConfig `json:"memoryManagement,omitempty"`
+}
+
+// AdvancedConfig holds the complete configuration for advanced analysis
+type AdvancedConfig struct {
+	// Search and deletion features
+	SearchTargets   []SearchTarget        `json:"searchTargets"`
+	HashingStrategy HashingStrategy       `json:"hashingStrategy"`
+	DeletionRules   []DeletionRule        `json:"deletionRules"`
+	SchemaDiscovery SchemaDiscoveryConfig `json:"schemaDiscovery"`
+
+	// Backup configuration
+	BackupConfig BackupConfig `json:"backup"`
+
+	// Output configuration
+	OutputConfig OutputConfig `json:"output"`
+}
+
+// PerformanceConfig contains performance-related settings
+type PerformanceConfig struct {
+	// Worker pool configuration
+	MinWorkers     int           `json:"minWorkers"`
+	MaxWorkers     int           `json:"maxWorkers"`
+	WorkerIdleTime time.Duration `json:"workerIdleTime"`
+	TaskBufferSize int           `json:"taskBufferSize"`
+
+	// Memory configuration
+	MaxMemoryUsage  int64   `json:"maxMemoryUsage"`  // in bytes
+	MemoryThreshold float64 `json:"memoryThreshold"` // percentage
+
+	// File processing configuration
+	BufferSize    int `json:"bufferSize"`
+	MaxBufferSize int `json:"maxBufferSize"`
+	BatchSize     int `json:"batchSize"`
+
+	// Adaptive scaling
+	EnableAdaptiveScaling bool          `json:"enableAdaptiveScaling"`
+	ScalingFactor         float64       `json:"scalingFactor"`
+	MetricsInterval       time.Duration `json:"metricsInterval"`
+}
+
+// ErrorHandlingConfig contains error handling configuration
+type ErrorHandlingConfig struct {
+	// Retry configuration
+	MaxRetries   int           `json:"maxRetries"`
+	RetryDelay   time.Duration `json:"retryDelay"`
+	RetryBackoff float64       `json:"retryBackoff"`
+
+	// Circuit breaker configuration
+	CircuitBreakerThreshold int           `json:"circuitBreakerThreshold"`
+	CircuitBreakerTimeout   time.Duration `json:"circuitBreakerTimeout"`
+
+	// Error tolerance
+	MaxErrorsPerFile int     `json:"maxErrorsPerFile"`
+	MaxErrorRate     float64 `json:"maxErrorRate"`
+	ContinueOnError  bool    `json:"continueOnError"`
+
+	// Alerting configuration
+	AlertingConfig AlertingConfig `json:"alerting"`
+}
+
+// StateManagementConfig contains state management configuration
+type StateManagementConfig struct {
+	Enabled             bool          `json:"enabled"`
+	StateDir            string        `json:"stateDir"`
+	AutoSaveInterval    time.Duration `json:"autoSaveInterval"`
+	MaxStateHistory     int           `json:"maxStateHistory"`
+	CompressionLevel    int           `json:"compressionLevel"`
+	EnableCheckpointing bool          `json:"enableCheckpointing"`
+	CheckpointInterval  time.Duration `json:"checkpointInterval"`
+}
+
+// MemoryManagementConfig contains memory management configuration
+type MemoryManagementConfig struct {
+	EnableStreaming         bool          `json:"enableStreaming"`
+	StreamingThreshold      int64         `json:"streamingThreshold"`
+	MaxMemoryUsage          int64         `json:"maxMemoryUsage"`
+	MemoryPressureThreshold float64       `json:"memoryPressureThreshold"`
+	GCInterval              time.Duration `json:"gcInterval"`
+	EnableMemoryProfiling   bool          `json:"enableMemoryProfiling"`
+}
+
+// SearchTarget defines what to search for in the data
+type SearchTarget struct {
+	Name          string   `json:"name"`
+	Type          string   `json:"type"` // "direct", "nested_array", "nested_object", "jsonpath"
+	Path          string   `json:"path"` // JSONPath-like syntax
+	TargetValues  []string `json:"targetValues"`
+	CaseSensitive bool     `json:"caseSensitive"`
+}
+
+// HashingStrategy defines how to hash rows for deduplication
+type HashingStrategy struct {
+	Mode        string   `json:"mode"` // "full_row", "selective", "exclude_keys"
+	IncludeKeys []string `json:"includeKeys,omitempty"`
+	ExcludeKeys []string `json:"excludeKeys,omitempty"`
+	Algorithm   string   `json:"algorithm"` // "fnv", "md5", "sha256"
+	Normalize   bool     `json:"normalize"` // normalize data before hashing
+}
+
+// DeletionRule defines what to do with matches
+type DeletionRule struct {
+	SearchTarget string   `json:"searchTarget"` // References SearchTarget.Name
+	Action       string   `json:"action"`       // "delete_row", "delete_matches", "mark_for_deletion", "delete_sub_key"
+	OutputPath   string   `json:"outputPath,omitempty"`
+	SubKeyPath   string   `json:"subKeyPath,omitempty"`   // For sub-key targeted deletions
+	SubKeyValues []string `json:"subKeyValues,omitempty"` // Values to match for sub-key deletion
+}
+
+// SchemaDiscoveryConfig configures schema analysis
+type SchemaDiscoveryConfig struct {
+	Enabled       bool     `json:"enabled"`
+	SamplePercent float64  `json:"samplePercent"` // 0.1 = 10%
+	MaxDepth      int      `json:"maxDepth"`      // Limit nesting depth
+	MaxSamples    int      `json:"maxSamples"`    // Cap total samples
+	OutputFormats []string `json:"outputFormats"` // ["json", "csv", "yaml"]
+	GroupByFolder bool     `json:"groupByFolder"` // Per-folder schemas
+}
+
+// BackupConfig contains backup configuration
+type BackupConfig struct {
+	Enabled       bool   `json:"enabled"`
+	BackupDir     string `json:"backupDir"`
+	RetentionDays int    `json:"retentionDays"`
+	Compression   bool   `json:"compression"`
+}
+
+// OutputConfig contains output configuration
+type OutputConfig struct {
+	Formats     []string `json:"formats"`
+	Destination string   `json:"destination"`
+	Compression bool     `json:"compression"`
+}
+
+// AlertingConfig contains alerting configuration
+type AlertingConfig struct {
+	Enabled     bool                  `json:"enabled"`
+	Rules       []AlertRule           `json:"rules"`
+	Channels    []NotificationChannel `json:"channels"`
+	Escalations []EscalationPolicy    `json:"escalations"`
+}
+
+// AlertRule represents an alerting rule
+type AlertRule struct {
+	Name      string            `json:"name"`
+	Condition string            `json:"condition"`
+	Threshold float64           `json:"threshold"`
+	Severity  string            `json:"severity"`
+	Enabled   bool              `json:"enabled"`
+	Labels    map[string]string `json:"labels"`
+}
+
+// NotificationChannel represents a notification channel
+type NotificationChannel struct {
+	Name     string         `json:"name"`
+	Type     string         `json:"type"`
+	Settings map[string]any `json:"settings"`
+	Enabled  bool           `json:"enabled"`
+}
+
+// EscalationPolicy represents an escalation policy
+type EscalationPolicy struct {
+	Name     string        `json:"name"`
+	Rules    []string      `json:"rules"`
+	Channels []string      `json:"channels"`
+	Delay    time.Duration `json:"delay"`
+}
+
+// Load reads the configuration from config/config.json. If the file does not
+// exist, it returns a configuration with default values.
+func Load() (*Config, error) {
+	cfg := defaultConfig()
+
+	// Load from environment variables
+	if err := loadFromEnv(cfg); err != nil {
+		return nil, fmt.Errorf("failed to load from environment: %w", err)
+	}
+
+	// Load from config file if it exists
+	if err := loadFromFile(cfg); err != nil {
+		return nil, fmt.Errorf("failed to load from file: %w", err)
+	}
+
+	// Set defaults for advanced config if present
+	if cfg.Advanced != nil {
+		cfg.Advanced.setDefaults()
+	}
+
+	// Set defaults for performance config if not provided
+	if cfg.Performance == nil {
+		cfg.Performance = &PerformanceConfig{
+			MinWorkers:            1,
+			MaxWorkers:            cfg.Workers * 2,
+			WorkerIdleTime:        30 * time.Second,
+			TaskBufferSize:        1000,
+			MaxMemoryUsage:        2 * 1024 * 1024 * 1024, // 2GB
+			MemoryThreshold:       0.8,
+			BufferSize:            1024 * 1024,      // 1MB
+			MaxBufferSize:         10 * 1024 * 1024, // 10MB
+			BatchSize:             100,
+			EnableAdaptiveScaling: true,
+			ScalingFactor:         1.5,
+			MetricsInterval:       10 * time.Second,
+		}
+	}
+
+	// Set defaults for error handling config if not provided
+	if cfg.ErrorHandling == nil {
+		cfg.ErrorHandling = &ErrorHandlingConfig{
+			MaxRetries:              3,
+			RetryDelay:              time.Second,
+			RetryBackoff:            2.0,
+			CircuitBreakerThreshold: 5,
+			CircuitBreakerTimeout:   30 * time.Second,
+			MaxErrorsPerFile:        100,
+			MaxErrorRate:            0.1,
+			ContinueOnError:         true,
+			AlertingConfig: AlertingConfig{
+				Enabled: false,
+			},
+		}
+	}
+
+	// Set defaults for state management config if not provided
+	if cfg.StateManagement == nil {
+		cfg.StateManagement = &StateManagementConfig{
+			Enabled:             true,
+			StateDir:            "state",
+			AutoSaveInterval:    30 * time.Second,
+			MaxStateHistory:     10,
+			CompressionLevel:    6,
+			EnableCheckpointing: true,
+			CheckpointInterval:  5 * time.Minute,
+		}
+	}
+
+	// Set defaults for memory management config if not provided
+	if cfg.MemoryManagement == nil {
+		cfg.MemoryManagement = &MemoryManagementConfig{
+			EnableStreaming:         true,
+			StreamingThreshold:      100 * 1024 * 1024,      // 100MB
+			MaxMemoryUsage:          2 * 1024 * 1024 * 1024, // 2GB
+			MemoryPressureThreshold: 0.8,
+			GCInterval:              5 * time.Minute,
+			EnableMemoryProfiling:   false,
+		}
+	}
+
+	// Validate configuration
+	if err := validateConfig(cfg); err != nil {
+		return nil, fmt.Errorf("configuration validation failed: %w", err)
+	}
+
+	return cfg, nil
+}
+
+// loadFromEnv loads configuration from environment variables
+func loadFromEnv(config *Config) error {
+	if path := os.Getenv("DUPE_ANALYSER_PATH"); path != "" {
+		config.Path = path
+	}
+	if key := os.Getenv("DUPE_ANALYSER_KEY"); key != "" {
+		config.Key = key
+	}
+	if workers := os.Getenv("DUPE_ANALYSER_WORKERS"); workers != "" {
+		if w, err := strconv.Atoi(workers); err == nil {
+			config.Workers = w
+		}
+	}
+	if logPath := os.Getenv("DUPE_ANALYSER_LOG_PATH"); logPath != "" {
+		config.LogPath = logPath
+	}
+	if checkKey := os.Getenv("DUPE_ANALYSER_CHECK_KEY"); checkKey != "" {
+		config.CheckKey = strings.ToLower(checkKey) == "true"
+	}
+	if checkRow := os.Getenv("DUPE_ANALYSER_CHECK_ROW"); checkRow != "" {
+		config.CheckRow = strings.ToLower(checkRow) == "true"
+	}
+
+	return nil
+}
+
+// loadFromFile loads configuration from a JSON file
+func loadFromFile(config *Config) error {
+	configPaths := []string{
+		filepath.Join(configDir, configFile),
+		"config.json",
+		"dupe-analyser.json",
+		filepath.Join(os.Getenv("HOME"), ".dupe-analyser.json"),
+		"/etc/dupe-analyser/config.json",
+	}
+
+	for _, path := range configPaths {
+		if _, err := os.Stat(path); err == nil {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return fmt.Errorf("failed to read config file %s: %w", path, err)
+			}
+
+			if err := json.Unmarshal(data, config); err != nil {
+				return fmt.Errorf("failed to parse config file %s: %w", path, err)
+			}
+
+			return nil
+		}
+	}
+
+	return nil // No config file found, use defaults
+}
+
+// validateConfig validates the configuration
+func validateConfig(config *Config) error {
+	if config.Workers < 1 {
+		return fmt.Errorf("workers must be at least 1")
+	}
+	if config.Workers > 100 {
+		return fmt.Errorf("workers cannot exceed 100")
+	}
+	if config.Key == "" {
+		return fmt.Errorf("key cannot be empty")
+	}
+	if config.LogPath == "" {
+		return fmt.Errorf("log path cannot be empty")
+	}
+
+	// Validate advanced configuration
+	if config.Advanced != nil {
+		if err := config.Advanced.Validate(); err != nil {
+			return err
+		}
+	}
+
+	// Validate performance configuration
+	if config.Performance != nil {
+		if config.Performance.MinWorkers < 1 {
+			return fmt.Errorf("min workers must be at least 1")
+		}
+		if config.Performance.MaxWorkers < config.Performance.MinWorkers {
+			return fmt.Errorf("max workers must be at least min workers")
+		}
+		if config.Performance.MemoryThreshold < 0 || config.Performance.MemoryThreshold > 1 {
+			return fmt.Errorf("memory threshold must be between 0 and 1")
+		}
+	}
+
+	// Validate error handling configuration
+	if config.ErrorHandling != nil {
+		if config.ErrorHandling.MaxRetries < 0 {
+			return fmt.Errorf("max retries cannot be negative")
+		}
+		if config.ErrorHandling.RetryBackoff < 1 {
+			return fmt.Errorf("retry backoff must be at least 1")
+		}
+		if config.ErrorHandling.MaxErrorRate < 0 || config.ErrorHandling.MaxErrorRate > 1 {
+			return fmt.Errorf("max error rate must be between 0 and 1")
+		}
+	}
+
+	return nil
+}
+
+// LoadAdvanced loads configuration from a JSON file with advanced features
+func LoadAdvanced(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
+	}
+
+	// Set defaults for base config
+	if cfg.Workers == 0 {
+		cfg.Workers = 8
+	}
+	if cfg.LogPath == "" {
+		cfg.LogPath = "logs"
+	}
+	if cfg.Key == "" {
+		cfg.Key = "id"
+	}
+
+	// Set defaults for advanced config if present
+	if cfg.Advanced != nil {
+		cfg.Advanced.setDefaults()
+	}
+
+	return &cfg, nil
+}
+
+// Save writes the given configuration to config/config.json.
+func (c *Config) Save() error {
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	configPath := filepath.Join(configDir, configFile)
+	data, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal config to json: %w", err)
+	}
+
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write config file to %s: %w", configPath, err)
+	}
+
+	return nil
+}
+
+// defaultConfig returns a new Config struct with baseline default values.
+func defaultConfig() *Config {
+	return &Config{
+		Workers:             8,
+		LogPath:             "logs",
+		CheckKey:            true,
+		CheckRow:            true,
+		ShowFolderBreakdown: true,
+		EnableTxtOutput:     false,
+		EnableJsonOutput:    false,
+		PurgeIDs:            false,
+		PurgeRows:           false,
+		Key:                 "id",
+	}
+}
+
+// OutputFormat represents an output format configuration
+type OutputFormat struct {
+	Format   string `json:"format"`
+	Filename string `json:"filename"`
+}
+
+// setDefaults sets default values for advanced configuration
+func (c *AdvancedConfig) setDefaults() {
+	if c.HashingStrategy.Mode == "" {
+		c.HashingStrategy.Mode = "full_row"
+	}
+	if c.HashingStrategy.Algorithm == "" {
+		c.HashingStrategy.Algorithm = "fnv"
+	}
+
+	if c.SchemaDiscovery.SamplePercent == 0 {
+		c.SchemaDiscovery.SamplePercent = 0.1 // 10%
+	}
+
+	if c.SchemaDiscovery.MaxDepth == 0 {
+		c.SchemaDiscovery.MaxDepth = 10
+	}
+
+	if c.SchemaDiscovery.MaxSamples == 0 {
+		c.SchemaDiscovery.MaxSamples = 100000
+	}
+
+	if len(c.SchemaDiscovery.OutputFormats) == 0 {
+		c.SchemaDiscovery.OutputFormats = []string{"json"}
+	}
+
+	if c.BackupConfig.BackupDir == "" {
+		c.BackupConfig.BackupDir = "backups"
+	}
+	if c.BackupConfig.RetentionDays == 0 {
+		c.BackupConfig.RetentionDays = 30
+	}
+
+	if c.OutputConfig.Destination == "" {
+		c.OutputConfig.Destination = "output"
+	}
+	if len(c.OutputConfig.Formats) == 0 {
+		c.OutputConfig.Formats = []string{"txt"}
+	}
+}
+
+// Validate checks if the configuration is valid
+func (c *AdvancedConfig) Validate() error {
+	// Validate search targets
+	targetNames := make(map[string]bool)
+	for _, target := range c.SearchTargets {
+		if target.Name == "" {
+			return fmt.Errorf("search target name cannot be empty")
+		}
+		if targetNames[target.Name] {
+			return fmt.Errorf("duplicate search target name: %s", target.Name)
+		}
+		targetNames[target.Name] = true
+
+		if target.Type == "" {
+			return fmt.Errorf("search target type cannot be empty for target: %s", target.Name)
+		}
+		if target.Path == "" {
+			return fmt.Errorf("search target path cannot be empty for target: %s", target.Name)
+		}
+	}
+
+	// Validate deletion rules reference valid targets
+	for _, rule := range c.DeletionRules {
+		if !targetNames[rule.SearchTarget] {
+			return fmt.Errorf("deletion rule references unknown search target: %s", rule.SearchTarget)
+		}
+	}
+
+	// Validate hashing strategy
+	switch c.HashingStrategy.Mode {
+	case "full_row", "selective", "exclude_keys":
+		// Valid modes
+	default:
+		return fmt.Errorf("invalid hashing strategy mode: %s", c.HashingStrategy.Mode)
+	}
+
+	if c.HashingStrategy.Mode == "selective" && len(c.HashingStrategy.IncludeKeys) == 0 {
+		return fmt.Errorf("selective hashing requires include keys")
+	}
+	if c.HashingStrategy.Mode == "exclude_keys" && len(c.HashingStrategy.ExcludeKeys) == 0 {
+		return fmt.Errorf("exclude_keys hashing requires exclude keys")
+	}
+
+	return nil
+}
+
+// Helper methods for the Config struct
+
+// IsAdvancedEnabled returns true if advanced features are enabled
+func (c *Config) IsAdvancedEnabled() bool {
+	return c.Advanced != nil && (c.Advanced.SchemaDiscovery.Enabled ||
+		len(c.Advanced.SearchTargets) > 0 ||
+		len(c.Advanced.DeletionRules) > 0 ||
+		c.Advanced.BackupConfig.Enabled)
+}
+
+// GetEffectiveWorkers returns the effective number of workers based on configuration
+func (c *Config) GetEffectiveWorkers() int {
+	if c.Performance != nil {
+		return min(max(c.Workers, c.Performance.MinWorkers), c.Performance.MaxWorkers)
+	}
+	return c.Workers
+}
+
+// GetStateDir returns the state directory path
+func (c *Config) GetStateDir() string {
+	if c.StateManagement != nil && c.StateManagement.StateDir != "" {
+		return c.StateManagement.StateDir
+	}
+	return filepath.Join(c.LogPath, "state")
+}
+
+// GetBackupDir returns the backup directory path
+func (c *Config) GetBackupDir() string {
+	if c.Advanced != nil && c.Advanced.BackupConfig.BackupDir != "" {
+		return c.Advanced.BackupConfig.BackupDir
+	}
+	return filepath.Join(c.LogPath, "backups")
+}
+
+// Clone creates a deep copy of the configuration
+func (c *Config) Clone() *Config {
+	data, _ := json.Marshal(c)
+	var clone Config
+	json.Unmarshal(data, &clone)
+	return &clone
+}
+
+// Merge merges another configuration into this one
+func (c *Config) Merge(other *Config) {
+	if other.Path != "" {
+		c.Path = other.Path
+	}
+	if other.Key != "" {
+		c.Key = other.Key
+	}
+	if other.Workers != 0 {
+		c.Workers = other.Workers
+	}
+	if other.LogPath != "" {
+		c.LogPath = other.LogPath
+	}
+
+	// Merge boolean flags
+	c.CheckKey = other.CheckKey
+	c.CheckRow = other.CheckRow
+	c.ShowFolderBreakdown = other.ShowFolderBreakdown
+	c.EnableTxtOutput = other.EnableTxtOutput
+	c.EnableJsonOutput = other.EnableJsonOutput
+	c.PurgeIDs = other.PurgeIDs
+	c.PurgeRows = other.PurgeRows
+
+	// Merge advanced configuration
+	if other.Advanced != nil {
+		if c.Advanced == nil {
+			c.Advanced = &AdvancedConfig{}
+		}
+		// Deep merge advanced config would go here
+	}
+
+	// Merge performance configuration
+	if other.Performance != nil {
+		if c.Performance == nil {
+			c.Performance = &PerformanceConfig{}
+		}
+		// Deep merge performance config would go here
+	}
+
+	// Merge error handling configuration
+	if other.ErrorHandling != nil {
+		if c.ErrorHandling == nil {
+			c.ErrorHandling = &ErrorHandlingConfig{}
+		}
+		// Deep merge error handling config would go here
+	}
+
+	// Merge state management configuration
+	if other.StateManagement != nil {
+		if c.StateManagement == nil {
+			c.StateManagement = &StateManagementConfig{}
+		}
+		// Deep merge state management config would go here
+	}
+
+	// Merge memory management configuration
+	if other.MemoryManagement != nil {
+		if c.MemoryManagement == nil {
+			c.MemoryManagement = &MemoryManagementConfig{}
+		}
+		// Deep merge memory management config would go here
+	}
+}
+
+// Helper functions for min/max since they're not available in older Go versions
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}

@@ -1,0 +1,55 @@
+{
+  "path": "/path/to/data",
+  "key": "id",
+  "workers": 8,
+  "logPath": "logs",
+  "checkKey": true,
+  "checkRow": true,
+  "showFolderBreakdown": true,
+  "enableTxtOutput": true,
+  "enableJsonOutput": true,
+  "purgeIds": false,
+  "purgeRows": false,
+  "advanced": {
+    "searchTargets": [
+      {
+        "name": "target_ids",
+        "type": "direct",
+        "path": "id",
+        "targetValues": ["123", "1234", "12345"],
+        "caseSensitive": false
+      },
+      {
+        "name": "line_item_ids",
+        "type": "nested_array",
+        "path": "line-items[*].line-item-id",
+        "targetValues": ["li-001", "li-002", "li-003"],
+        "caseSensitive": false
+      }
+    ],
+    "hashingStrategy": {
+      "mode": "exclude_keys",
+      "excludeKeys": ["version-id", "updated-at", "timestamp", "last-modified"]
+    },
+    "deletionRules": [
+      {
+        "searchTarget": "target_ids",
+        "action": "delete_row",
+        "outputPath": "deleted_rows.jsonl"
+      },
+      {
+        "searchTarget": "line_item_ids",
+        "action": "delete_matches",
+        "outputPath": "cleaned_data.jsonl"
+      }
+    ],
+    "schemaDiscovery": {
+      "enabled": true,
+      "samplePercent": 0.1,
+      "maxDepth": 5,
+      "maxSamples": 50000,
+      "outputFormats": ["json", "csv"],
+      "groupByFolder": true
+    }
+  }
+}

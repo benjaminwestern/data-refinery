@@ -1,0 +1,50 @@
+{
+  "path": "/path/to/data",
+  "key": "id",
+  "workers": 8,
+  "logPath": "logs",
+  "checkKey": true,
+  "checkRow": true,
+  "showFolderBreakdown": true,
+  "enableTxtOutput": true,
+  "enableJsonOutput": true,
+  "purgeIds": false,
+  "purgeRows": false,
+  "advanced": {
+    "searchTargets": [
+      {
+        "name": "specific_customers",
+        "type": "direct",
+        "path": "customer_id",
+        "targetValues": ["cust-123", "cust-456", "cust-789"],
+        "caseSensitive": false
+      },
+      {
+        "name": "product_variants",
+        "type": "nested_object",
+        "path": "product.variants.sku",
+        "targetValues": ["SKU-001", "SKU-002"],
+        "caseSensitive": true
+      }
+    ],
+    "hashingStrategy": {
+      "mode": "selective", 
+      "includeKeys": ["customer_id", "product_id", "order_total", "items"]
+    },
+    "deletionRules": [
+      {
+        "searchTarget": "specific_customers",
+        "action": "mark_for_deletion",
+        "outputPath": "marked_customers.jsonl"
+      }
+    ],
+    "schemaDiscovery": {
+      "enabled": true,
+      "samplePercent": 0.2,
+      "maxDepth": 3,
+      "maxSamples": 25000,
+      "outputFormats": ["json"],
+      "groupByFolder": false
+    }
+  }
+}
