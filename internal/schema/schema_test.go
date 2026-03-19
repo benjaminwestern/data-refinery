@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/config"
-	"github.com/benjaminwestern/dupe-analyser/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/config"
+	"github.com/benjaminwestern/data-refinery/internal/report"
 )
 
 func TestNewSchemaAnalyzer(t *testing.T) {

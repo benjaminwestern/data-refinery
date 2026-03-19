@@ -1,4 +1,3 @@
-// internal/source/source.go
 package source
 
 import (
@@ -13,8 +12,7 @@ import (
 	"google.golang.org/api/iterator"
 )
 
-// InputSource defines an abstract source for data, providing a way to get
-// a streaming reader for the content, its path, and its size.
+// InputSource represents a processable input file or object.
 type InputSource interface {
 	Path() string
 	Open(ctx context.Context) (io.ReadCloser, error)
@@ -22,9 +20,8 @@ type InputSource interface {
 	Size() int64
 }
 
-// DiscoverAll iterates through a list of path strings, calls Discover for each,
-// and aggregates the results, ensuring no source is included more than once.
-// It returns an error if any path is invalid.
+// DiscoverAll resolves every supplied path and returns a de-duplicated list of
+// processable sources.
 func DiscoverAll(ctx context.Context, paths []string) ([]InputSource, error) {
 	var uniqueSources []InputSource
 	discoveredPaths := make(map[string]bool)
@@ -54,8 +51,7 @@ func DiscoverAll(ctx context.Context, paths []string) ([]InputSource, error) {
 	return uniqueSources, nil
 }
 
-// Discover finds all relevant sources at a given path, dispatching to the correct
-// implementation based on the path prefix (e.g., "gs://").
+// Discover resolves a single local path or GCS URI into one or more sources.
 func Discover(ctx context.Context, path string) ([]InputSource, error) {
 	if strings.HasPrefix(path, "gs://") {
 		return discoverGCSObjects(ctx, path)
@@ -65,7 +61,14 @@ func Discover(ctx context.Context, path string) ([]InputSource, error) {
 		return nil, fmt.Errorf("invalid path: %w", err)
 	}
 	if !info.IsDir() {
-		return nil, fmt.Errorf("local path is not a directory: %s", path)
+		if !isProcessableLocalFile(path) {
+			return nil, fmt.Errorf("local path is not a supported JSON/NDJSON file: %s", path)
+		}
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			return nil, fmt.Errorf("could not get absolute path for %s: %w", path, err)
+		}
+		return []InputSource{LocalFileSource{filePath: absPath, size: info.Size()}}, nil
 	}
 	return discoverLocalFiles(ctx, path)
 }
@@ -76,40 +79,46 @@ type LocalFileSource struct {
 	size     int64
 }
 
-// Path returns the full file path.
+// Path returns the absolute file path.
 func (lfs LocalFileSource) Path() string { return lfs.filePath }
 
-// Open returns an os.File reader.
+// Open returns a streaming file reader.
 func (lfs LocalFileSource) Open(_ context.Context) (io.ReadCloser, error) {
 	return os.Open(lfs.filePath)
 }
 
-// Dir returns the containing directory of the file.
+// Dir returns the containing directory for the file.
 func (lfs LocalFileSource) Dir() string { return filepath.Dir(lfs.filePath) }
 
-// Size returns the size of the file in bytes.
+// Size returns the file size in bytes.
 func (lfs LocalFileSource) Size() int64 { return lfs.size }
 
-// GCSObjectSource implements InputSource for Google Cloud Storage objects.
+// GCSObjectSource implements InputSource for a Google Cloud Storage object.
 type GCSObjectSource struct {
 	bucketName string
 	objectName string
 	size       int64
+	generation int64
 }
 
-// Path returns the full gs:// URI for the object.
+// Path returns the object's full `gs://` URI.
 func (gcs GCSObjectSource) Path() string {
 	return fmt.Sprintf("gs://%s/%s", gcs.bucketName, gcs.objectName)
 }
 
-// Open returns a new streaming reader for the GCS object.
+// Open returns a new streaming reader for the object.
 func (gcs GCSObjectSource) Open(ctx context.Context) (io.ReadCloser, error) {
 	client, err := storage.NewClient(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GCS client: %w", err)
 	}
 
-	reader, err := client.Bucket(gcs.bucketName).Object(gcs.objectName).NewReader(ctx)
+	objectHandle := client.Bucket(gcs.bucketName).Object(gcs.objectName)
+	if gcs.generation > 0 {
+		objectHandle = objectHandle.If(storage.Conditions{GenerationMatch: gcs.generation})
+	}
+
+	reader, err := objectHandle.NewReader(ctx)
 	if err != nil {
 		client.Close()
 		return nil, err
@@ -118,7 +127,7 @@ func (gcs GCSObjectSource) Open(ctx context.Context) (io.ReadCloser, error) {
 	return &gcsReadCloser{reader: reader, client: client}, nil
 }
 
-// Dir returns the containing "directory" (prefix) of the object within its bucket.
+// Dir returns the containing prefix for the object within its bucket.
 func (gcs GCSObjectSource) Dir() string {
 	if idx := strings.LastIndex(gcs.objectName, "/"); idx >= 0 {
 		return fmt.Sprintf("gs://%s/%s", gcs.bucketName, gcs.objectName[:idx])
@@ -126,9 +135,14 @@ func (gcs GCSObjectSource) Dir() string {
 	return fmt.Sprintf("gs://%s", gcs.bucketName)
 }
 
-// Size returns the size of the GCS object in bytes.
+// Size returns the object size in bytes.
 func (gcs GCSObjectSource) Size() int64 {
 	return gcs.size
+}
+
+// Generation returns the source object's discovered generation.
+func (gcs GCSObjectSource) Generation() int64 {
+	return gcs.generation
 }
 
 type gcsReadCloser struct {
@@ -173,18 +187,23 @@ func discoverGCSObjects(ctx context.Context, path string) ([]InputSource, error)
 		return nil, fmt.Errorf("GCS bucket '%s' not found or access denied: %w", bucketName, err)
 	}
 
+	if prefix != "" {
+		if attrs, err := bucket.Object(prefix).Attrs(ctx); err == nil {
+			if !isProcessableGCSObject(attrs.Name, attrs.ContentType) {
+				return nil, fmt.Errorf("GCS object '%s' is not a supported JSON/NDJSON file", path)
+			}
+			return []InputSource{GCSObjectSource{
+				bucketName: bucketName,
+				objectName: attrs.Name,
+				size:       attrs.Size,
+				generation: attrs.Generation,
+			}}, nil
+		}
+	}
+
 	query := &storage.Query{Prefix: prefix}
 	it := bucket.Objects(ctx, query)
 	var sources []InputSource
-
-	allowedMimeTypes := map[string]bool{
-		"application/json":           true,
-		"application/x-ndjson":       true,
-		"application/json-seq":       true,
-		"application/jsonlines":      true,
-		"application/jsonlines+json": true,
-		"application/x-jsonlines":    true,
-	}
 
 	for {
 		attrs, err := it.Next()
@@ -200,11 +219,12 @@ func discoverGCSObjects(ctx context.Context, path string) ([]InputSource, error)
 		if strings.HasSuffix(attrs.Name, "/") {
 			continue
 		}
-		if allowedMimeTypes[attrs.ContentType] {
+		if isProcessableGCSObject(attrs.Name, attrs.ContentType) {
 			sources = append(sources, GCSObjectSource{
 				bucketName: bucketName,
 				objectName: attrs.Name,
 				size:       attrs.Size,
+				generation: attrs.Generation,
 			})
 		}
 	}
@@ -212,6 +232,26 @@ func discoverGCSObjects(ctx context.Context, path string) ([]InputSource, error)
 		return nil, fmt.Errorf("no processable JSON files found in 'gs://%s' with prefix '%s'", bucketName, prefix)
 	}
 	return sources, nil
+}
+
+func isProcessableLocalFile(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.HasSuffix(lower, ".json") ||
+		strings.HasSuffix(lower, ".ndjson") ||
+		strings.HasSuffix(lower, ".jsonl")
+}
+
+func isProcessableGCSObject(name, contentType string) bool {
+	allowedMimeTypes := map[string]bool{
+		"application/json":           true,
+		"application/x-ndjson":       true,
+		"application/json-seq":       true,
+		"application/jsonlines":      true,
+		"application/jsonlines+json": true,
+		"application/x-jsonlines":    true,
+	}
+
+	return allowedMimeTypes[contentType] || isProcessableLocalFile(name)
 }
 
 func discoverLocalFiles(ctx context.Context, dirPath string) ([]InputSource, error) {

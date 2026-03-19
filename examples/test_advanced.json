@@ -13,7 +13,7 @@
   "advanced": {
     "searchTargets": [
       {
-        "name": "test_search",
+        "name": "customer_match",
         "type": "direct",
         "path": "customer_id",
         "targetValues": ["cust-123"],
@@ -22,7 +22,9 @@
     ],
     "hashingStrategy": {
       "mode": "selective",
-      "includeKeys": ["id", "customer_id"]
+      "includeKeys": ["id", "customer_id"],
+      "algorithm": "fnv",
+      "normalize": true
     },
     "deletionRules": [],
     "schemaDiscovery": {
@@ -32,6 +34,17 @@
       "maxSamples": 100,
       "outputFormats": ["json"],
       "groupByFolder": false
+    },
+    "backup": {
+      "enabled": false,
+      "backupDir": "backups",
+      "retentionDays": 7,
+      "compression": false
+    },
+    "output": {
+      "formats": ["json"],
+      "destination": "output",
+      "compression": false
     }
   }
 }

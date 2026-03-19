@@ -1,7 +1,7 @@
 {
-  "path": "/path/to/data",
+  "path": "./test_data",
   "key": "id",
-  "workers": 8,
+  "workers": 4,
   "logPath": "logs",
   "checkKey": true,
   "checkRow": true,
@@ -13,43 +13,56 @@
   "advanced": {
     "searchTargets": [
       {
-        "name": "target_ids",
+        "name": "customer_match",
         "type": "direct",
-        "path": "id",
-        "targetValues": ["123", "1234", "12345"],
+        "path": "customer_id",
+        "targetValues": ["cust-123"],
         "caseSensitive": false
       },
       {
         "name": "line_item_ids",
         "type": "nested_array",
-        "path": "line-items[*].line-item-id",
-        "targetValues": ["li-001", "li-002", "li-003"],
+        "path": "line_items[*].item_id",
+        "targetValues": ["li-001"],
         "caseSensitive": false
       }
     ],
     "hashingStrategy": {
       "mode": "exclude_keys",
-      "excludeKeys": ["version-id", "updated-at", "timestamp", "last-modified"]
+      "excludeKeys": ["metadata.created"],
+      "algorithm": "fnv",
+      "normalize": true
     },
     "deletionRules": [
       {
-        "searchTarget": "target_ids",
+        "searchTarget": "customer_match",
         "action": "delete_row",
-        "outputPath": "deleted_rows.jsonl"
+        "outputPath": "logs/derived/deleted-customers.jsonl"
       },
       {
         "searchTarget": "line_item_ids",
         "action": "delete_matches",
-        "outputPath": "cleaned_data.jsonl"
+        "outputPath": "logs/derived/cleaned-line-items.jsonl"
       }
     ],
     "schemaDiscovery": {
       "enabled": true,
       "samplePercent": 0.1,
       "maxDepth": 5,
-      "maxSamples": 50000,
+      "maxSamples": 500,
       "outputFormats": ["json", "csv"],
       "groupByFolder": true
+    },
+    "backup": {
+      "enabled": false,
+      "backupDir": "backups",
+      "retentionDays": 7,
+      "compression": false
+    },
+    "output": {
+      "formats": ["txt", "json"],
+      "destination": "output",
+      "compression": false
     }
   }
 }

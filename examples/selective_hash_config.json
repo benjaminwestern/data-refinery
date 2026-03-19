@@ -1,5 +1,5 @@
 {
-  "path": "/path/to/data",
+  "path": "/data/orders",
   "key": "id",
   "workers": 8,
   "logPath": "logs",
@@ -13,7 +13,7 @@
   "advanced": {
     "searchTargets": [
       {
-        "name": "specific_customers",
+        "name": "priority_customers",
         "type": "direct",
         "path": "customer_id",
         "targetValues": ["cust-123", "cust-456", "cust-789"],
@@ -28,14 +28,16 @@
       }
     ],
     "hashingStrategy": {
-      "mode": "selective", 
-      "includeKeys": ["customer_id", "product_id", "order_total", "items"]
+      "mode": "selective",
+      "includeKeys": ["customer_id", "product.name", "line_items"],
+      "algorithm": "fnv",
+      "normalize": true
     },
     "deletionRules": [
       {
-        "searchTarget": "specific_customers",
+        "searchTarget": "priority_customers",
         "action": "mark_for_deletion",
-        "outputPath": "marked_customers.jsonl"
+        "outputPath": "review/priority-customers.jsonl"
       }
     ],
     "schemaDiscovery": {
@@ -45,6 +47,17 @@
       "maxSamples": 25000,
       "outputFormats": ["json"],
       "groupByFolder": false
+    },
+    "backup": {
+      "enabled": false,
+      "backupDir": "backups",
+      "retentionDays": 30,
+      "compression": false
+    },
+    "output": {
+      "formats": ["txt"],
+      "destination": "output",
+      "compression": false
     }
   }
 }

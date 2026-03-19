@@ -338,10 +338,10 @@ func (r *AnalysisReport) Save(baseFilename string, enableTxt, enableJson, checkK
 	if enableTxt {
 		summaryFilename := baseFilename + "_summary.txt"
 		detailsFilename := baseFilename + "_details.txt"
-		if err := os.WriteFile(summaryFilename, []byte(r.String(false, checkKey, checkRow, showFolderBreakdown)), 0644); err != nil {
+		if err := os.WriteFile(summaryFilename, []byte(r.String(false, checkKey, checkRow, showFolderBreakdown)), 0o600); err != nil {
 			log.Printf("Failed to save TXT summary report to %s: %v", summaryFilename, err)
 		}
-		if err := os.WriteFile(detailsFilename, []byte(r.String(true, checkKey, checkRow, showFolderBreakdown)), 0644); err != nil {
+		if err := os.WriteFile(detailsFilename, []byte(r.String(true, checkKey, checkRow, showFolderBreakdown)), 0o600); err != nil {
 			log.Printf("Failed to save TXT details report to %s: %v", detailsFilename, err)
 		}
 	}
@@ -352,7 +352,7 @@ func (r *AnalysisReport) Save(baseFilename string, enableTxt, enableJson, checkK
 			log.Printf("Failed to marshal JSON report: %v", err)
 			return
 		}
-		if err := os.WriteFile(filename, []byte(jsonData), 0644); err != nil {
+		if err := os.WriteFile(filename, []byte(jsonData), 0o600); err != nil {
 			log.Printf("Failed to save JSON report to %s: %v", filename, err)
 		}
 	}

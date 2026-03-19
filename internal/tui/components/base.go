@@ -12,12 +12,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/analyser"
-	"github.com/benjaminwestern/dupe-analyser/internal/config"
-	"github.com/benjaminwestern/dupe-analyser/internal/memory"
-	"github.com/benjaminwestern/dupe-analyser/internal/report"
-	"github.com/benjaminwestern/dupe-analyser/internal/source"
-	"github.com/benjaminwestern/dupe-analyser/internal/state"
+	"github.com/benjaminwestern/data-refinery/internal/analyser"
+	"github.com/benjaminwestern/data-refinery/internal/config"
+	"github.com/benjaminwestern/data-refinery/internal/memory"
+	"github.com/benjaminwestern/data-refinery/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/source"
+	"github.com/benjaminwestern/data-refinery/internal/state"
 )
 
 // Styles - matching the ones from the original TUI

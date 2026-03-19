@@ -9,11 +9,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/deletion"
-	"github.com/benjaminwestern/dupe-analyser/internal/hasher"
-	"github.com/benjaminwestern/dupe-analyser/internal/report"
-	"github.com/benjaminwestern/dupe-analyser/internal/schema"
-	"github.com/benjaminwestern/dupe-analyser/internal/search"
+	"github.com/benjaminwestern/data-refinery/internal/deletion"
+	"github.com/benjaminwestern/data-refinery/internal/hasher"
+	"github.com/benjaminwestern/data-refinery/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/schema"
+	"github.com/benjaminwestern/data-refinery/internal/search"
 )
 
 // RowProcessor defines the interface for processing individual rows of data

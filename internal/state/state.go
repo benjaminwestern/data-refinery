@@ -12,11 +12,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/config"
-	"github.com/benjaminwestern/dupe-analyser/internal/deletion"
-	"github.com/benjaminwestern/dupe-analyser/internal/report"
-	"github.com/benjaminwestern/dupe-analyser/internal/schema"
-	"github.com/benjaminwestern/dupe-analyser/internal/search"
+	"github.com/benjaminwestern/data-refinery/internal/config"
+	"github.com/benjaminwestern/data-refinery/internal/deletion"
+	"github.com/benjaminwestern/data-refinery/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/schema"
+	"github.com/benjaminwestern/data-refinery/internal/search"
 )
 
 const (
@@ -148,7 +148,7 @@ func NewStateManager(stateDir, sessionID string, options ...StateManagerOption) 
 	}
 
 	// Ensure state directory exists
-	if err := os.MkdirAll(stateDir, 0755); err != nil {
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return nil, fmt.Errorf("failed to create state directory: %w", err)
 	}
 
@@ -466,7 +466,7 @@ func (sm *StateManager) saveState(state *AnalysisState) error {
 
 	// Create temporary file
 	tempFile := filename + ".tmp"
-	file, err := os.Create(tempFile)
+	file, err := os.OpenFile(tempFile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("failed to create temporary state file: %w", err)
 	}

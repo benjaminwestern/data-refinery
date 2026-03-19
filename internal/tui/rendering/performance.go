@@ -8,8 +8,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/tui/layout"
-	"github.com/benjaminwestern/dupe-analyser/internal/tui/theme"
+	"github.com/benjaminwestern/data-refinery/internal/tui/layout"
+	"github.com/benjaminwestern/data-refinery/internal/tui/theme"
 )
 
 // RenderCache manages cached rendered content for performance

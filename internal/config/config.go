@@ -1,4 +1,3 @@
-// internal/config/config.go
 package config
 
 import (
@@ -16,98 +15,109 @@ const (
 	configFile = "config.json"
 )
 
-// Config holds all user-configurable settings for the application.
+// Config holds the user-configurable settings for an analysis run.
 type Config struct {
-	Path                string `json:"path"`
-	Key                 string `json:"key"`
-	Workers             int    `json:"workers"`
-	LogPath             string `json:"logPath"`
-	CheckKey            bool   `json:"checkKey"`
-	CheckRow            bool   `json:"checkRow"`
-	ValidateOnly        bool   `json:"validateOnly"`
-	IsValidationRun     bool   `json:"isValidationRun"`
-	ShowFolderBreakdown bool   `json:"showFolderBreakdown"`
-	EnableTxtOutput     bool   `json:"enableTxtOutput"`
-	EnableJsonOutput    bool   `json:"enableJsonOutput"`
-	PurgeIDs            bool   `json:"purgeIds"`
-	PurgeRows           bool   `json:"purgeRows"`
-	GCSAvailable        bool   `json:"-"` // Runtime flag, not saved to config file.
+	Path                        string `json:"path"`
+	Key                         string `json:"key"`
+	Workers                     int    `json:"workers"`
+	LogPath                     string `json:"logPath"`
+	ApprovedOutputRoot          string `json:"approvedOutputRoot,omitempty"`
+	CheckKey                    bool   `json:"checkKey"`
+	CheckRow                    bool   `json:"checkRow"`
+	ValidateOnly                bool   `json:"validateOnly"`
+	IsValidationRun             bool   `json:"isValidationRun"`
+	ShowFolderBreakdown         bool   `json:"showFolderBreakdown"`
+	EnableTxtOutput             bool   `json:"enableTxtOutput"`
+	EnableJsonOutput            bool   `json:"enableJsonOutput"`
+	PurgeIDs                    bool   `json:"purgeIds"`
+	PurgeRows                   bool   `json:"purgeRows"`
+	GCSAvailable                bool   `json:"-"` // Runtime flag; not persisted to config.
+	LoadedConfigPath            string `json:"-"`
+	ConfigLoadedImplicitly      bool   `json:"-"`
+	AllowImplicitMutationConfig bool   `json:"-"`
+	UnsafeMutationBypass        bool   `json:"-"`
 
-	// Advanced features
+	// Advanced analysis features.
 	Advanced *AdvancedConfig `json:"advanced,omitempty"`
 
-	// Performance configuration
+	// Performance configuration.
 	Performance *PerformanceConfig `json:"performance,omitempty"`
 
-	// Error handling configuration
+	// Error handling configuration.
 	ErrorHandling *ErrorHandlingConfig `json:"errorHandling,omitempty"`
 
-	// State management configuration
+	// State management configuration.
 	StateManagement *StateManagementConfig `json:"stateManagement,omitempty"`
 
-	// Memory management configuration
+	// Memory management configuration.
 	MemoryManagement *MemoryManagementConfig `json:"memoryManagement,omitempty"`
 }
 
-// AdvancedConfig holds the complete configuration for advanced analysis
+// LoadOptions controls how application configuration is discovered.
+type LoadOptions struct {
+	ExplicitPath  string
+	AllowImplicit bool
+}
+
+// AdvancedConfig groups the optional analysis features beyond the base run.
 type AdvancedConfig struct {
-	// Search and deletion features
+	// Search and deletion features.
 	SearchTargets   []SearchTarget        `json:"searchTargets"`
 	HashingStrategy HashingStrategy       `json:"hashingStrategy"`
 	DeletionRules   []DeletionRule        `json:"deletionRules"`
 	SchemaDiscovery SchemaDiscoveryConfig `json:"schemaDiscovery"`
 
-	// Backup configuration
+	// Backup configuration.
 	BackupConfig BackupConfig `json:"backup"`
 
-	// Output configuration
+	// Output configuration.
 	OutputConfig OutputConfig `json:"output"`
 }
 
-// PerformanceConfig contains performance-related settings
+// PerformanceConfig contains throughput and buffering settings.
 type PerformanceConfig struct {
-	// Worker pool configuration
+	// Worker pool configuration.
 	MinWorkers     int           `json:"minWorkers"`
 	MaxWorkers     int           `json:"maxWorkers"`
 	WorkerIdleTime time.Duration `json:"workerIdleTime"`
 	TaskBufferSize int           `json:"taskBufferSize"`
 
-	// Memory configuration
-	MaxMemoryUsage  int64   `json:"maxMemoryUsage"`  // in bytes
-	MemoryThreshold float64 `json:"memoryThreshold"` // percentage
+	// Memory configuration.
+	MaxMemoryUsage  int64   `json:"maxMemoryUsage"`  // Bytes.
+	MemoryThreshold float64 `json:"memoryThreshold"` // Fraction between 0 and 1.
 
-	// File processing configuration
+	// File processing configuration.
 	BufferSize    int `json:"bufferSize"`
 	MaxBufferSize int `json:"maxBufferSize"`
 	BatchSize     int `json:"batchSize"`
 
-	// Adaptive scaling
+	// Adaptive scaling.
 	EnableAdaptiveScaling bool          `json:"enableAdaptiveScaling"`
 	ScalingFactor         float64       `json:"scalingFactor"`
 	MetricsInterval       time.Duration `json:"metricsInterval"`
 }
 
-// ErrorHandlingConfig contains error handling configuration
+// ErrorHandlingConfig contains retry, tolerance, and alerting settings.
 type ErrorHandlingConfig struct {
-	// Retry configuration
+	// Retry configuration.
 	MaxRetries   int           `json:"maxRetries"`
 	RetryDelay   time.Duration `json:"retryDelay"`
 	RetryBackoff float64       `json:"retryBackoff"`
 
-	// Circuit breaker configuration
+	// Circuit breaker configuration.
 	CircuitBreakerThreshold int           `json:"circuitBreakerThreshold"`
 	CircuitBreakerTimeout   time.Duration `json:"circuitBreakerTimeout"`
 
-	// Error tolerance
+	// Error tolerance.
 	MaxErrorsPerFile int     `json:"maxErrorsPerFile"`
 	MaxErrorRate     float64 `json:"maxErrorRate"`
 	ContinueOnError  bool    `json:"continueOnError"`
 
-	// Alerting configuration
+	// Alerting configuration.
 	AlertingConfig AlertingConfig `json:"alerting"`
 }
 
-// StateManagementConfig contains state management configuration
+// StateManagementConfig contains checkpointing and persisted run-state settings.
 type StateManagementConfig struct {
 	Enabled             bool          `json:"enabled"`
 	StateDir            string        `json:"stateDir"`
@@ -118,7 +128,7 @@ type StateManagementConfig struct {
 	CheckpointInterval  time.Duration `json:"checkpointInterval"`
 }
 
-// MemoryManagementConfig contains memory management configuration
+// MemoryManagementConfig contains streaming and memory-pressure settings.
 type MemoryManagementConfig struct {
 	EnableStreaming         bool          `json:"enableStreaming"`
 	StreamingThreshold      int64         `json:"streamingThreshold"`
@@ -128,44 +138,44 @@ type MemoryManagementConfig struct {
 	EnableMemoryProfiling   bool          `json:"enableMemoryProfiling"`
 }
 
-// SearchTarget defines what to search for in the data
+// SearchTarget defines what to search for and where to search for it.
 type SearchTarget struct {
 	Name          string   `json:"name"`
-	Type          string   `json:"type"` // "direct", "nested_array", "nested_object", "jsonpath"
-	Path          string   `json:"path"` // JSONPath-like syntax
+	Type          string   `json:"type"` // "direct", "nested_array", "nested_object", or "jsonpath".
+	Path          string   `json:"path"` // JSONPath-like syntax.
 	TargetValues  []string `json:"targetValues"`
 	CaseSensitive bool     `json:"caseSensitive"`
 }
 
-// HashingStrategy defines how to hash rows for deduplication
+// HashingStrategy defines how rows are normalised and hashed for deduplication.
 type HashingStrategy struct {
-	Mode        string   `json:"mode"` // "full_row", "selective", "exclude_keys"
+	Mode        string   `json:"mode"` // "full_row", "selective", or "exclude_keys".
 	IncludeKeys []string `json:"includeKeys,omitempty"`
 	ExcludeKeys []string `json:"excludeKeys,omitempty"`
-	Algorithm   string   `json:"algorithm"` // "fnv", "md5", "sha256"
-	Normalize   bool     `json:"normalize"` // normalize data before hashing
+	Algorithm   string   `json:"algorithm"` // "fnv", "md5", or "sha256".
+	Normalize   bool     `json:"normalize"` // Normalise data before hashing.
 }
 
-// DeletionRule defines what to do with matches
+// DeletionRule defines the derived output to produce for matching records.
 type DeletionRule struct {
-	SearchTarget string   `json:"searchTarget"` // References SearchTarget.Name
-	Action       string   `json:"action"`       // "delete_row", "delete_matches", "mark_for_deletion", "delete_sub_key"
+	SearchTarget string   `json:"searchTarget"` // References SearchTarget.Name.
+	Action       string   `json:"action"`       // "delete_row", "delete_matches", "mark_for_deletion", or "delete_sub_key".
 	OutputPath   string   `json:"outputPath,omitempty"`
-	SubKeyPath   string   `json:"subKeyPath,omitempty"`   // For sub-key targeted deletions
-	SubKeyValues []string `json:"subKeyValues,omitempty"` // Values to match for sub-key deletion
+	SubKeyPath   string   `json:"subKeyPath,omitempty"`   // Used for sub-key targeted deletions.
+	SubKeyValues []string `json:"subKeyValues,omitempty"` // Values to match for sub-key deletion.
 }
 
-// SchemaDiscoveryConfig configures schema analysis
+// SchemaDiscoveryConfig controls schema sampling and export behaviour.
 type SchemaDiscoveryConfig struct {
 	Enabled       bool     `json:"enabled"`
-	SamplePercent float64  `json:"samplePercent"` // 0.1 = 10%
-	MaxDepth      int      `json:"maxDepth"`      // Limit nesting depth
-	MaxSamples    int      `json:"maxSamples"`    // Cap total samples
-	OutputFormats []string `json:"outputFormats"` // ["json", "csv", "yaml"]
-	GroupByFolder bool     `json:"groupByFolder"` // Per-folder schemas
+	SamplePercent float64  `json:"samplePercent"` // 0.1 = 10%.
+	MaxDepth      int      `json:"maxDepth"`      // Limit nesting depth.
+	MaxSamples    int      `json:"maxSamples"`    // Cap total samples.
+	OutputFormats []string `json:"outputFormats"` // For example: ["json", "csv", "yaml"].
+	GroupByFolder bool     `json:"groupByFolder"` // Emit per-folder schema views.
 }
 
-// BackupConfig contains backup configuration
+// BackupConfig contains analysis backup settings.
 type BackupConfig struct {
 	Enabled       bool   `json:"enabled"`
 	BackupDir     string `json:"backupDir"`
@@ -173,14 +183,14 @@ type BackupConfig struct {
 	Compression   bool   `json:"compression"`
 }
 
-// OutputConfig contains output configuration
+// OutputConfig contains output destination settings.
 type OutputConfig struct {
 	Formats     []string `json:"formats"`
 	Destination string   `json:"destination"`
 	Compression bool     `json:"compression"`
 }
 
-// AlertingConfig contains alerting configuration
+// AlertingConfig contains alerting rules and notification routes.
 type AlertingConfig struct {
 	Enabled     bool                  `json:"enabled"`
 	Rules       []AlertRule           `json:"rules"`
@@ -188,7 +198,7 @@ type AlertingConfig struct {
 	Escalations []EscalationPolicy    `json:"escalations"`
 }
 
-// AlertRule represents an alerting rule
+// AlertRule represents a single alerting rule.
 type AlertRule struct {
 	Name      string            `json:"name"`
 	Condition string            `json:"condition"`
@@ -198,7 +208,7 @@ type AlertRule struct {
 	Labels    map[string]string `json:"labels"`
 }
 
-// NotificationChannel represents a notification channel
+// NotificationChannel represents a notification channel.
 type NotificationChannel struct {
 	Name     string         `json:"name"`
 	Type     string         `json:"type"`
@@ -206,7 +216,7 @@ type NotificationChannel struct {
 	Enabled  bool           `json:"enabled"`
 }
 
-// EscalationPolicy represents an escalation policy
+// EscalationPolicy represents an escalation policy.
 type EscalationPolicy struct {
 	Name     string        `json:"name"`
 	Rules    []string      `json:"rules"`
@@ -214,9 +224,15 @@ type EscalationPolicy struct {
 	Delay    time.Duration `json:"delay"`
 }
 
-// Load reads the configuration from config/config.json. If the file does not
-// exist, it returns a configuration with default values.
+// Load reads the application configuration from the supported config locations
+// and falls back to built-in defaults when none are present.
 func Load() (*Config, error) {
+	return LoadWithOptions(LoadOptions{AllowImplicit: true})
+}
+
+// LoadWithOptions reads the application configuration using the requested trust
+// policy and falls back to built-in defaults when no file is loaded.
+func LoadWithOptions(options LoadOptions) (*Config, error) {
 	cfg := defaultConfig()
 
 	// Load from environment variables
@@ -224,9 +240,23 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("failed to load from environment: %w", err)
 	}
 
-	// Load from config file if it exists
-	if err := loadFromFile(cfg); err != nil {
-		return nil, fmt.Errorf("failed to load from file: %w", err)
+	explicitPath := strings.TrimSpace(options.ExplicitPath)
+	if explicitPath != "" {
+		loadedPath, err := loadFileAtPath(cfg, explicitPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load explicit config file: %w", err)
+		}
+		cfg.LoadedConfigPath = loadedPath
+		cfg.ConfigLoadedImplicitly = false
+	} else if options.AllowImplicit {
+		loadedPath, err := loadFromFile(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load from file: %w", err)
+		}
+		if loadedPath != "" {
+			cfg.LoadedConfigPath = loadedPath
+			cfg.ConfigLoadedImplicitly = true
+		}
 	}
 
 	// Set defaults for advanced config if present
@@ -302,61 +332,52 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// loadFromEnv loads configuration from environment variables
+// loadFromEnv loads configuration from environment variables.
 func loadFromEnv(config *Config) error {
-	if path := os.Getenv("DUPE_ANALYSER_PATH"); path != "" {
+	if path := os.Getenv("DATA_REFINERY_PATH"); path != "" {
 		config.Path = path
 	}
-	if key := os.Getenv("DUPE_ANALYSER_KEY"); key != "" {
+	if key := os.Getenv("DATA_REFINERY_KEY"); key != "" {
 		config.Key = key
 	}
-	if workers := os.Getenv("DUPE_ANALYSER_WORKERS"); workers != "" {
+	if workers := os.Getenv("DATA_REFINERY_WORKERS"); workers != "" {
 		if w, err := strconv.Atoi(workers); err == nil {
 			config.Workers = w
 		}
 	}
-	if logPath := os.Getenv("DUPE_ANALYSER_LOG_PATH"); logPath != "" {
+	if logPath := os.Getenv("DATA_REFINERY_LOG_PATH"); logPath != "" {
 		config.LogPath = logPath
 	}
-	if checkKey := os.Getenv("DUPE_ANALYSER_CHECK_KEY"); checkKey != "" {
+	if checkKey := os.Getenv("DATA_REFINERY_CHECK_KEY"); checkKey != "" {
 		config.CheckKey = strings.ToLower(checkKey) == "true"
 	}
-	if checkRow := os.Getenv("DUPE_ANALYSER_CHECK_ROW"); checkRow != "" {
+	if checkRow := os.Getenv("DATA_REFINERY_CHECK_ROW"); checkRow != "" {
 		config.CheckRow = strings.ToLower(checkRow) == "true"
 	}
 
 	return nil
 }
 
-// loadFromFile loads configuration from a JSON file
-func loadFromFile(config *Config) error {
+// loadFromFile loads configuration from the first available JSON config file.
+func loadFromFile(config *Config) (string, error) {
 	configPaths := []string{
 		filepath.Join(configDir, configFile),
 		"config.json",
-		"dupe-analyser.json",
-		filepath.Join(os.Getenv("HOME"), ".dupe-analyser.json"),
-		"/etc/dupe-analyser/config.json",
+		"data-refinery.json",
+		filepath.Join(os.Getenv("HOME"), ".data-refinery.json"),
+		"/etc/data-refinery/config.json",
 	}
 
 	for _, path := range configPaths {
 		if _, err := os.Stat(path); err == nil {
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return fmt.Errorf("failed to read config file %s: %w", path, err)
-			}
-
-			if err := json.Unmarshal(data, config); err != nil {
-				return fmt.Errorf("failed to parse config file %s: %w", path, err)
-			}
-
-			return nil
+			return loadFileAtPath(config, path)
 		}
 	}
 
-	return nil // No config file found, use defaults
+	return "", nil // No config file found; use defaults.
 }
 
-// validateConfig validates the configuration
+// validateConfig validates the configuration.
 func validateConfig(config *Config) error {
 	if config.Workers < 1 {
 		return fmt.Errorf("workers must be at least 1")
@@ -407,7 +428,7 @@ func validateConfig(config *Config) error {
 	return nil
 }
 
-// LoadAdvanced loads configuration from a JSON file with advanced features
+// LoadAdvanced loads a JSON config file intended for advanced analysis runs.
 func LoadAdvanced(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -435,12 +456,35 @@ func LoadAdvanced(path string) (*Config, error) {
 		cfg.Advanced.setDefaults()
 	}
 
+	cfg.LoadedConfigPath = normalizeConfigPath(path)
+	cfg.ConfigLoadedImplicitly = false
+
 	return &cfg, nil
 }
 
-// Save writes the given configuration to config/config.json.
+func loadFileAtPath(config *Config, path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read config file %s: %w", path, err)
+	}
+
+	if err := json.Unmarshal(data, config); err != nil {
+		return "", fmt.Errorf("failed to parse config file %s: %w", path, err)
+	}
+
+	return normalizeConfigPath(path), nil
+}
+
+func normalizeConfigPath(path string) string {
+	if absPath, err := filepath.Abs(path); err == nil {
+		return absPath
+	}
+	return path
+}
+
+// Save writes the configuration to `config/config.json`.
 func (c *Config) Save() error {
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
@@ -450,7 +494,7 @@ func (c *Config) Save() error {
 		return fmt.Errorf("failed to marshal config to json: %w", err)
 	}
 
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
+	if err := os.WriteFile(configPath, data, 0o644); err != nil {
 		return fmt.Errorf("failed to write config file to %s: %w", configPath, err)
 	}
 
@@ -473,13 +517,13 @@ func defaultConfig() *Config {
 	}
 }
 
-// OutputFormat represents an output format configuration
+// OutputFormat represents an output format and its target filename.
 type OutputFormat struct {
 	Format   string `json:"format"`
 	Filename string `json:"filename"`
 }
 
-// setDefaults sets default values for advanced configuration
+// setDefaults applies defaults to an advanced analysis config.
 func (c *AdvancedConfig) setDefaults() {
 	if c.HashingStrategy.Mode == "" {
 		c.HashingStrategy.Mode = "full_row"
@@ -519,7 +563,7 @@ func (c *AdvancedConfig) setDefaults() {
 	}
 }
 
-// Validate checks if the configuration is valid
+// Validate checks whether the advanced analysis configuration is valid.
 func (c *AdvancedConfig) Validate() error {
 	// Validate search targets
 	targetNames := make(map[string]bool)
@@ -565,9 +609,7 @@ func (c *AdvancedConfig) Validate() error {
 	return nil
 }
 
-// Helper methods for the Config struct
-
-// IsAdvancedEnabled returns true if advanced features are enabled
+// IsAdvancedEnabled reports whether any advanced analysis feature is enabled.
 func (c *Config) IsAdvancedEnabled() bool {
 	return c.Advanced != nil && (c.Advanced.SchemaDiscovery.Enabled ||
 		len(c.Advanced.SearchTargets) > 0 ||
@@ -575,7 +617,7 @@ func (c *Config) IsAdvancedEnabled() bool {
 		c.Advanced.BackupConfig.Enabled)
 }
 
-// GetEffectiveWorkers returns the effective number of workers based on configuration
+// GetEffectiveWorkers returns the worker count after performance limits apply.
 func (c *Config) GetEffectiveWorkers() int {
 	if c.Performance != nil {
 		return min(max(c.Workers, c.Performance.MinWorkers), c.Performance.MaxWorkers)
@@ -583,7 +625,7 @@ func (c *Config) GetEffectiveWorkers() int {
 	return c.Workers
 }
 
-// GetStateDir returns the state directory path
+// GetStateDir returns the directory used for persisted run state.
 func (c *Config) GetStateDir() string {
 	if c.StateManagement != nil && c.StateManagement.StateDir != "" {
 		return c.StateManagement.StateDir
@@ -591,7 +633,7 @@ func (c *Config) GetStateDir() string {
 	return filepath.Join(c.LogPath, "state")
 }
 
-// GetBackupDir returns the backup directory path
+// GetBackupDir returns the backup directory for derived analysis artefacts.
 func (c *Config) GetBackupDir() string {
 	if c.Advanced != nil && c.Advanced.BackupConfig.BackupDir != "" {
 		return c.Advanced.BackupConfig.BackupDir
@@ -599,7 +641,7 @@ func (c *Config) GetBackupDir() string {
 	return filepath.Join(c.LogPath, "backups")
 }
 
-// Clone creates a deep copy of the configuration
+// Clone creates a deep copy of the configuration.
 func (c *Config) Clone() *Config {
 	data, _ := json.Marshal(c)
 	var clone Config
@@ -607,7 +649,7 @@ func (c *Config) Clone() *Config {
 	return &clone
 }
 
-// Merge merges another configuration into this one
+// Merge overlays another configuration onto this one.
 func (c *Config) Merge(other *Config) {
 	if other.Path != "" {
 		c.Path = other.Path
@@ -672,7 +714,7 @@ func (c *Config) Merge(other *Config) {
 	}
 }
 
-// Helper functions for min/max since they're not available in older Go versions
+// Helper functions for min/max since they're not available in older Go versions.
 func min(a, b int) int {
 	if a < b {
 		return a

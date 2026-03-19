@@ -1,0 +1,13 @@
+{
+  "paths": [
+    "../test_data/test2.json",
+    "../test_data/search_test2.json"
+  ],
+  "workers": 4,
+  "logPath": "../logs",
+  "mode": "preview",
+  "topLevelKey": "customer_id",
+  "topLevelValues": [
+    "cust-456"
+  ]
+}

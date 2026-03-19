@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/report"
 )
 
 // ErrorType represents different types of errors

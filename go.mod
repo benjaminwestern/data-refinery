@@ -1,4 +1,4 @@
-module github.com/benjaminwestern/dupe-analyser
+module github.com/benjaminwestern/data-refinery
 
 go 1.25.0
 

@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/config"
-	"github.com/benjaminwestern/dupe-analyser/internal/report"
-	"github.com/benjaminwestern/dupe-analyser/internal/search"
-	"github.com/benjaminwestern/dupe-analyser/internal/source"
+	"github.com/benjaminwestern/data-refinery/internal/config"
+	"github.com/benjaminwestern/data-refinery/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/search"
+	"github.com/benjaminwestern/data-refinery/internal/source"
 )
 
 func TestNewDeletionEngine(t *testing.T) {
@@ -300,6 +300,7 @@ func TestDeletionEngine_DeleteFromPath(t *testing.T) {
 		}
 	})
 }
+
 func TestDeletionEngine_CopyData(t *testing.T) {
 	engine := NewDeletionEngine(nil, nil)
 
@@ -613,7 +614,6 @@ func TestBatchDeletionProcessor_ProcessSources_EmptyList(t *testing.T) {
 
 	ctx := context.Background()
 	err := processor.ProcessSources(ctx, []source.InputSource{})
-
 	if err != nil {
 		t.Errorf("Expected no error for empty sources, got %v", err)
 	}

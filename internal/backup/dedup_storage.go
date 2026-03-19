@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/report"
 )
 
 // DedupStorage handles storage of deduplicated rows
@@ -432,7 +432,7 @@ func (dp *DedupProcessor) SaveSummary(basePath string) error {
 	}
 
 	summaryPath := filepath.Join(basePath, "deduplication_summary.json")
-	if err := ioutil.WriteFile(summaryPath, data, 0644); err != nil {
+	if err := ioutil.WriteFile(summaryPath, data, 0o644); err != nil {
 		return fmt.Errorf("failed to write summary: %w", err)
 	}
 

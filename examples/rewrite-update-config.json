@@ -1,0 +1,16 @@
+{
+  "paths": [
+    "../test_data/test1.json"
+  ],
+  "workers": 4,
+  "logPath": "../logs",
+  "mode": "apply",
+  "backupDir": "../backups/rewrite-update",
+  "updateKey": "customer_id",
+  "updateOldValue": "cust-123",
+  "updateNewValue": "cust-999",
+  "updateIDKey": "id",
+  "updateIDValues": [
+    "test1"
+  ]
+}

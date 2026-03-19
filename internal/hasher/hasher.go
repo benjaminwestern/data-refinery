@@ -1,51 +1,53 @@
+// Package hasher provides row-hashing strategies and hashing metrics helpers.
 package hasher
 
 import (
-	"crypto/md5"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"hash"
 	"hash/fnv"
 	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/config"
-	"github.com/benjaminwestern/dupe-analyser/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/config"
+	"github.com/benjaminwestern/data-refinery/internal/report"
 )
 
-// SelectiveHasher provides configurable hashing strategies
+const (
+	modeFullRow     = "full_row"
+	modeSelective   = "selective"
+	modeExcludeKeys = "exclude_keys"
+)
+
+// SelectiveHasher provides configurable hashing strategies.
 type SelectiveHasher struct {
 	strategy config.HashingStrategy
-	hasher   hash.Hash64
 }
 
-// NewSelectiveHasher creates a new selective hasher with the given strategy
+// NewSelectiveHasher creates a new selective hasher with the given strategy.
 func NewSelectiveHasher(strategy config.HashingStrategy) *SelectiveHasher {
 	return &SelectiveHasher{
 		strategy: strategy,
-		hasher:   fnv.New64a(),
 	}
 }
 
-// HashRow hashes a row based on the configured strategy
+// HashRow hashes a row based on the configured strategy.
 func (sh *SelectiveHasher) HashRow(data report.JSONData) string {
 	switch sh.strategy.Mode {
-	case "full_row":
+	case modeFullRow:
 		return sh.hashFullRow(data)
-	case "selective":
+	case modeSelective:
 		return sh.hashSelectedKeys(data, sh.strategy.IncludeKeys)
-	case "exclude_keys":
+	case modeExcludeKeys:
 		return sh.hashExcludingKeys(data, sh.strategy.ExcludeKeys)
 	default:
 		return sh.hashFullRow(data)
 	}
 }
 
-// hashFullRow hashes the entire JSON object (default behavior)
+// hashFullRow hashes the entire JSON object (default behavior).
 func (sh *SelectiveHasher) hashFullRow(data report.JSONData) string {
-	sh.hasher.Reset()
-
 	// Convert to JSON for consistent hashing
 	jsonBytes, err := json.Marshal(data)
 	if err != nil {
@@ -53,14 +55,11 @@ func (sh *SelectiveHasher) hashFullRow(data report.JSONData) string {
 		jsonBytes = []byte(fmt.Sprintf("%v", data))
 	}
 
-	sh.hasher.Write(jsonBytes)
-	return strconv.FormatUint(sh.hasher.Sum64(), 10)
+	return hashBytesFNV(jsonBytes)
 }
 
-// hashSelectedKeys hashes only the specified keys
+// hashSelectedKeys hashes only the specified keys.
 func (sh *SelectiveHasher) hashSelectedKeys(data report.JSONData, keys []string) string {
-	sh.hasher.Reset()
-
 	// Create a new map with only the selected keys
 	selectedData := make(map[string]any)
 	for _, key := range keys {
@@ -75,14 +74,11 @@ func (sh *SelectiveHasher) hashSelectedKeys(data report.JSONData, keys []string)
 		jsonBytes = []byte(fmt.Sprintf("%v", selectedData))
 	}
 
-	sh.hasher.Write(jsonBytes)
-	return strconv.FormatUint(sh.hasher.Sum64(), 10)
+	return hashBytesFNV(jsonBytes)
 }
 
-// hashExcludingKeys hashes everything except the specified keys
+// hashExcludingKeys hashes everything except the specified keys.
 func (sh *SelectiveHasher) hashExcludingKeys(data report.JSONData, excludeKeys []string) string {
-	sh.hasher.Reset()
-
 	// Create exclusion set for fast lookup
 	excludeSet := make(map[string]bool)
 	for _, key := range excludeKeys {
@@ -103,17 +99,31 @@ func (sh *SelectiveHasher) hashExcludingKeys(data report.JSONData, excludeKeys [
 		jsonBytes = []byte(fmt.Sprintf("%v", filteredData))
 	}
 
-	sh.hasher.Write(jsonBytes)
-	return strconv.FormatUint(sh.hasher.Sum64(), 10)
+	return hashBytesFNV(jsonBytes)
 }
 
-// marshalConsistently marshals data in a consistent way for hashing
+func hashBytesFNV(data []byte) string {
+	hasher := fnv.New64a()
+	if _, err := hasher.Write(data); err != nil {
+		sum := sha256.Sum256(data)
+		return fmt.Sprintf("%x", sum[:])
+	}
+	return strconv.FormatUint(hasher.Sum64(), 10)
+}
+
+// marshalConsistently marshals data in a consistent way for hashing.
 func (sh *SelectiveHasher) marshalConsistently(data any) ([]byte, error) {
 	// For consistent hashing, we need to ensure key ordering
-	return json.Marshal(sh.normalizeForHashing(data))
+	normalized := sh.normalizeForHashing(data)
+	normalizedBytes, err := json.Marshal(normalized)
+	if err != nil {
+		return nil, fmt.Errorf("marshal normalized hash data: %w", err)
+	}
+
+	return normalizedBytes, nil
 }
 
-// normalizeForHashing normalizes data structure for consistent hashing
+// normalizeForHashing normalizes data structure for consistent hashing.
 func (sh *SelectiveHasher) normalizeForHashing(data any) any {
 	switch v := data.(type) {
 	case map[string]any:
@@ -143,13 +153,13 @@ func (sh *SelectiveHasher) normalizeForHashing(data any) any {
 	}
 }
 
-// AdvancedHasher provides additional hashing capabilities
+// AdvancedHasher provides additional hashing capabilities.
 type AdvancedHasher struct {
 	primary   *SelectiveHasher
 	secondary *SelectiveHasher
 }
 
-// NewAdvancedHasher creates a hasher with primary and secondary strategies
+// NewAdvancedHasher creates a hasher with primary and secondary strategies.
 func NewAdvancedHasher(primary, secondary config.HashingStrategy) *AdvancedHasher {
 	return &AdvancedHasher{
 		primary:   NewSelectiveHasher(primary),
@@ -157,33 +167,30 @@ func NewAdvancedHasher(primary, secondary config.HashingStrategy) *AdvancedHashe
 	}
 }
 
-// HashRowDual generates both primary and secondary hashes
+// HashRowDual generates both primary and secondary hashes.
 func (ah *AdvancedHasher) HashRowDual(data report.JSONData) (string, string) {
 	primaryHash := ah.primary.HashRow(data)
 	secondaryHash := ah.secondary.HashRow(data)
 	return primaryHash, secondaryHash
 }
 
-// HashRowComposite generates a composite hash from multiple strategies
+// HashRowComposite generates a composite hash from multiple strategies.
 func (ah *AdvancedHasher) HashRowComposite(data report.JSONData) string {
 	primary, secondary := ah.HashRowDual(data)
 
-	// Combine hashes using a hash function
-	hasher := md5.New()
-	hasher.Write([]byte(primary))
-	hasher.Write([]byte(secondary))
-
-	return fmt.Sprintf("%x", hasher.Sum(nil))
+	// Combine hashes using a stronger digest to avoid weak-primitive warnings.
+	sum := sha256.Sum256([]byte(primary + ":" + secondary))
+	return fmt.Sprintf("%x", sum[:])
 }
 
-// SemanticHasher provides semantic hashing for similar content detection
+// SemanticHasher provides semantic hashing for similar content detection.
 type SemanticHasher struct {
 	normalizeStrings bool
 	ignoreWhitespace bool
 	ignoreCase       bool
 }
 
-// NewSemanticHasher creates a semantic hasher
+// NewSemanticHasher creates a semantic hasher.
 func NewSemanticHasher(normalizeStrings, ignoreWhitespace, ignoreCase bool) *SemanticHasher {
 	return &SemanticHasher{
 		normalizeStrings: normalizeStrings,
@@ -192,7 +199,7 @@ func NewSemanticHasher(normalizeStrings, ignoreWhitespace, ignoreCase bool) *Sem
 	}
 }
 
-// HashRowSemantic generates a semantic hash for content similarity
+// HashRowSemantic generates a semantic hash for content similarity.
 func (sh *SemanticHasher) HashRowSemantic(data report.JSONData, strategy config.HashingStrategy) string {
 	hasher := NewSelectiveHasher(strategy)
 
@@ -202,7 +209,7 @@ func (sh *SemanticHasher) HashRowSemantic(data report.JSONData, strategy config.
 	return hasher.HashRow(normalizedData)
 }
 
-// normalizeData applies semantic normalization to data
+// normalizeData applies semantic normalization to data.
 func (sh *SemanticHasher) normalizeData(data report.JSONData) report.JSONData {
 	normalized := make(report.JSONData)
 
@@ -213,7 +220,7 @@ func (sh *SemanticHasher) normalizeData(data report.JSONData) report.JSONData {
 	return normalized
 }
 
-// NormalizeValue normalizes individual values based on semantic rules
+// NormalizeValue normalizes individual values based on semantic rules.
 func (sh *SemanticHasher) NormalizeValue(value any) any {
 	switch v := value.(type) {
 	case string:
@@ -235,7 +242,7 @@ func (sh *SemanticHasher) NormalizeValue(value any) any {
 	}
 }
 
-// normalizeString applies string normalization rules
+// normalizeString applies string normalization rules.
 func (sh *SemanticHasher) normalizeString(s string) string {
 	if sh.ignoreCase {
 		s = strings.ToLower(s)
@@ -253,7 +260,7 @@ func (sh *SemanticHasher) normalizeString(s string) string {
 	return s
 }
 
-// HashingMetrics provides statistics about hashing performance
+// HashingMetrics provides statistics about hashing performance.
 type HashingMetrics struct {
 	TotalRows         int64            `json:"totalRows"`
 	UniqueHashes      int64            `json:"uniqueHashes"`
@@ -263,13 +270,13 @@ type HashingMetrics struct {
 	StrategyBreakdown map[string]int64 `json:"strategyBreakdown"`
 }
 
-// MetricsCollector collects hashing performance metrics
+// MetricsCollector collects hashing performance metrics.
 type MetricsCollector struct {
 	metrics HashingMetrics
 	hashes  map[string]int64
 }
 
-// NewMetricsCollector creates a new metrics collector
+// NewMetricsCollector creates a new metrics collector.
 func NewMetricsCollector() *MetricsCollector {
 	return &MetricsCollector{
 		metrics: HashingMetrics{
@@ -280,7 +287,7 @@ func NewMetricsCollector() *MetricsCollector {
 	}
 }
 
-// RecordHash records a hash for metrics collection
+// RecordHash records a hash for metrics collection.
 func (mc *MetricsCollector) RecordHash(hash string, strategy string) {
 	mc.metrics.TotalRows++
 	mc.hashes[hash]++
@@ -291,7 +298,7 @@ func (mc *MetricsCollector) RecordHash(hash string, strategy string) {
 	}
 }
 
-// GetMetrics returns the collected metrics
+// GetMetrics returns the collected metrics.
 func (mc *MetricsCollector) GetMetrics() HashingMetrics {
 	// Calculate collision rate
 	if mc.metrics.TotalRows > 0 {
@@ -309,22 +316,22 @@ func (mc *MetricsCollector) GetMetrics() HashingMetrics {
 	return mc.metrics
 }
 
-// HashingStrategy utilities
+// HashingStrategy utilities.
 
-// ValidateHashingStrategy validates a hashing strategy configuration
+// ValidateHashingStrategy validates a hashing strategy configuration.
 func ValidateHashingStrategy(strategy config.HashingStrategy) error {
 	switch strategy.Mode {
-	case "full_row":
+	case modeFullRow:
 		// No additional validation needed
 		return nil
-	case "selective":
+	case modeSelective:
 		if len(strategy.IncludeKeys) == 0 {
 			return fmt.Errorf("selective hashing requires at least one include key")
 		}
 		return nil
-	case "exclude_keys":
+	case modeExcludeKeys:
 		if len(strategy.ExcludeKeys) == 0 {
-			return fmt.Errorf("exclude_keys hashing requires at least one exclude key")
+			return fmt.Errorf("%s hashing requires at least one exclude key", modeExcludeKeys)
 		}
 		return nil
 	default:
@@ -332,11 +339,11 @@ func ValidateHashingStrategy(strategy config.HashingStrategy) error {
 	}
 }
 
-// OptimizeHashingStrategy suggests optimizations for a given strategy
+// OptimizeHashingStrategy suggests optimizations for a given strategy.
 func OptimizeHashingStrategy(strategy config.HashingStrategy, sampleData []report.JSONData) config.HashingStrategy {
 	optimized := strategy
 
-	if strategy.Mode == "exclude_keys" {
+	if strategy.Mode == modeExcludeKeys {
 		// Analyze which keys cause the most variance
 		keyVariance := analyzeKeyVariance(sampleData)
 
@@ -356,7 +363,7 @@ func OptimizeHashingStrategy(strategy config.HashingStrategy, sampleData []repor
 	return optimized
 }
 
-// analyzeKeyVariance analyzes the variance of keys in sample data
+// analyzeKeyVariance analyzes the variance of keys in sample data.
 func analyzeKeyVariance(sampleData []report.JSONData) map[string]float64 {
 	keyValues := make(map[string]map[string]int)
 	keyTotals := make(map[string]int)

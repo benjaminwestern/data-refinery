@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -17,16 +18,16 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/analyser"
-	"github.com/benjaminwestern/dupe-analyser/internal/backup"
-	"github.com/benjaminwestern/dupe-analyser/internal/config"
-	"github.com/benjaminwestern/dupe-analyser/internal/deletion"
-	"github.com/benjaminwestern/dupe-analyser/internal/errors"
-	"github.com/benjaminwestern/dupe-analyser/internal/memory"
-	"github.com/benjaminwestern/dupe-analyser/internal/output"
-	"github.com/benjaminwestern/dupe-analyser/internal/report"
-	"github.com/benjaminwestern/dupe-analyser/internal/source"
-	"github.com/benjaminwestern/dupe-analyser/internal/state"
+	"github.com/benjaminwestern/data-refinery/internal/analyser"
+	"github.com/benjaminwestern/data-refinery/internal/backup"
+	"github.com/benjaminwestern/data-refinery/internal/config"
+	"github.com/benjaminwestern/data-refinery/internal/deletion"
+	"github.com/benjaminwestern/data-refinery/internal/errors"
+	"github.com/benjaminwestern/data-refinery/internal/memory"
+	"github.com/benjaminwestern/data-refinery/internal/output"
+	"github.com/benjaminwestern/data-refinery/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/source"
+	"github.com/benjaminwestern/data-refinery/internal/state"
 )
 
 // View states - simplified and grouped logically
@@ -135,12 +136,14 @@ var (
 			Bold(true)
 )
 
-type sourcesFoundMsg struct{ sources []source.InputSource }
-type progressUpdateMsg struct{}
-type allWorkCompleteMsg struct {
-	report            *report.AnalysisReport
-	savedFilenameBase string
-}
+type (
+	sourcesFoundMsg    struct{ sources []source.InputSource }
+	progressUpdateMsg  struct{}
+	allWorkCompleteMsg struct {
+		report            *report.AnalysisReport
+		savedFilenameBase string
+	}
+)
 type purgeResultMsg struct {
 	filesModified  int
 	recordsDeleted int
@@ -185,17 +188,22 @@ type model struct {
 	finalReport      *report.AnalysisReport
 	savedFilename    string
 
-	path                string
-	key                 string
-	workers             int
-	logPath             string
-	checkKey            bool
-	checkRow            bool
-	showFolderBreakdown bool
-	outputTxt           bool
-	outputJson          bool
-	purgeIds            bool
-	purgeRows           bool
+	path                 string
+	key                  string
+	workers              int
+	logPath              string
+	approvedOutputRoot   string
+	checkKey             bool
+	checkRow             bool
+	showFolderBreakdown  bool
+	outputTxt            bool
+	outputJson           bool
+	purgeIds             bool
+	purgeRows            bool
+	loadedConfigPath     string
+	configImplicit       bool
+	allowImplicitConfig  bool
+	unsafeMutationBypass bool
 
 	menuCursor    int
 	optionsCursor int
@@ -337,17 +345,22 @@ func initModel(ctx context.Context, cfg *config.Config) (model, error) {
 		stateManager:        stateManager,
 		memoryManager:       memoryManager,
 
-		path:                cfg.Path,
-		key:                 cfg.Key,
-		workers:             cfg.Workers,
-		logPath:             cfg.LogPath,
-		checkKey:            cfg.CheckKey,
-		checkRow:            cfg.CheckRow,
-		showFolderBreakdown: cfg.ShowFolderBreakdown,
-		outputTxt:           cfg.EnableTxtOutput,
-		outputJson:          cfg.EnableJsonOutput,
-		purgeIds:            cfg.PurgeIDs,
-		purgeRows:           cfg.PurgeRows,
+		path:                 cfg.Path,
+		key:                  cfg.Key,
+		workers:              cfg.Workers,
+		logPath:              cfg.LogPath,
+		approvedOutputRoot:   cfg.ApprovedOutputRoot,
+		checkKey:             cfg.CheckKey,
+		checkRow:             cfg.CheckRow,
+		showFolderBreakdown:  cfg.ShowFolderBreakdown,
+		outputTxt:            cfg.EnableTxtOutput,
+		outputJson:           cfg.EnableJsonOutput,
+		purgeIds:             cfg.PurgeIDs,
+		purgeRows:            cfg.PurgeRows,
+		loadedConfigPath:     cfg.LoadedConfigPath,
+		configImplicit:       cfg.ConfigLoadedImplicitly,
+		allowImplicitConfig:  cfg.AllowImplicitMutationConfig,
+		unsafeMutationBypass: cfg.UnsafeMutationBypass,
 
 		// Initialize advanced features
 		advancedEnabled: cfg.Advanced != nil,
@@ -394,17 +407,22 @@ func (m model) Init() tea.Cmd {
 
 func (m *model) buildConfig() *config.Config {
 	cfg := &config.Config{
-		Path:                m.path,
-		Key:                 m.key,
-		Workers:             m.workers,
-		LogPath:             m.logPath,
-		CheckKey:            m.checkKey,
-		CheckRow:            m.checkRow,
-		ShowFolderBreakdown: m.showFolderBreakdown,
-		EnableTxtOutput:     m.outputTxt,
-		EnableJsonOutput:    m.outputJson,
-		PurgeIDs:            m.purgeIds,
-		PurgeRows:           m.purgeRows,
+		Path:                        m.path,
+		Key:                         m.key,
+		Workers:                     m.workers,
+		LogPath:                     m.logPath,
+		ApprovedOutputRoot:          m.approvedOutputRoot,
+		CheckKey:                    m.checkKey,
+		CheckRow:                    m.checkRow,
+		ShowFolderBreakdown:         m.showFolderBreakdown,
+		EnableTxtOutput:             m.outputTxt,
+		EnableJsonOutput:            m.outputJson,
+		PurgeIDs:                    m.purgeIds,
+		PurgeRows:                   m.purgeRows,
+		LoadedConfigPath:            m.loadedConfigPath,
+		ConfigLoadedImplicitly:      m.configImplicit,
+		AllowImplicitMutationConfig: m.allowImplicitConfig,
+		UnsafeMutationBypass:        m.unsafeMutationBypass,
 	}
 
 	// Add advanced config if enabled
@@ -712,8 +730,141 @@ func discoverAllSourcesCmd(ctx context.Context, paths []string) tea.Cmd {
 	}
 }
 
+func guardedAnalysisSafetyApplies(cfg *config.Config) bool {
+	if cfg == nil {
+		return false
+	}
+
+	if cfg.PurgeIDs || cfg.PurgeRows {
+		return true
+	}
+
+	if cfg.Advanced == nil {
+		return false
+	}
+
+	for _, rule := range cfg.Advanced.DeletionRules {
+		if strings.TrimSpace(rule.OutputPath) != "" {
+			return true
+		}
+	}
+
+	return false
+}
+
+func validateGuardedAnalysisSafety(cfg *config.Config) (string, []string, []string, error) {
+	if !guardedAnalysisSafetyApplies(cfg) {
+		return "", nil, nil, nil
+	}
+
+	if cfg.ConfigLoadedImplicitly && !cfg.AllowImplicitMutationConfig && !cfg.UnsafeMutationBypass {
+		return "", nil, nil, fmt.Errorf(
+			"analysis is using implicitly discovered app config %s; rerun with --app-config, --allow-implicit-config, or --yes-i-know-what-im-doing",
+			cfg.LoadedConfigPath,
+		)
+	}
+
+	localTargets := []string{cfg.LogPath}
+	if cfg.PurgeIDs || cfg.PurgeRows {
+		localTargets = append(localTargets, "deleted_records")
+	}
+
+	var remoteTargets []string
+	if cfg.Advanced != nil {
+		for _, rule := range cfg.Advanced.DeletionRules {
+			if rule.OutputPath == "" {
+				continue
+			}
+			if strings.HasPrefix(rule.OutputPath, "gs://") {
+				remoteTargets = append(remoteTargets, rule.OutputPath)
+				continue
+			}
+			localTargets = append(localTargets, rule.OutputPath)
+		}
+	}
+
+	resolvedRoot, err := config.ResolveApprovedOutputRoot(cfg.ApprovedOutputRoot)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	resolvedLocalTargets := make([]string, 0, len(localTargets))
+	for _, target := range localTargets {
+		if strings.TrimSpace(target) == "" {
+			continue
+		}
+		absTarget, err := filepath.Abs(target)
+		if err != nil {
+			return "", nil, nil, fmt.Errorf("resolve guarded analysis write target %q: %w", target, err)
+		}
+		resolvedLocalTargets = append(resolvedLocalTargets, absTarget)
+	}
+
+	if cfg.UnsafeMutationBypass {
+		return resolvedRoot, dedupeStrings(resolvedLocalTargets), dedupeStrings(remoteTargets), nil
+	}
+
+	validatedTargets, err := config.ValidateLocalWriteTargets(resolvedRoot, localTargets)
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("%w. Use --approved-output-root or --yes-i-know-what-im-doing", err)
+	}
+
+	return resolvedRoot, validatedTargets, dedupeStrings(remoteTargets), nil
+}
+
+func dedupeStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	deduped := make([]string, 0, len(values))
+
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		deduped = append(deduped, trimmed)
+	}
+
+	return deduped
+}
+
+func logGuardedAnalysisSafety(cfg *config.Config, sources []source.InputSource, approvedRoot string, localTargets, remoteTargets []string) {
+	if !guardedAnalysisSafetyApplies(cfg) {
+		return
+	}
+
+	log.Printf("analysis safety preflight")
+	log.Printf("  app config: %s", cfg.ConfigSourceSummary())
+	log.Printf("  approved local output root: %s", approvedRoot)
+	if cfg.UnsafeMutationBypass {
+		log.Printf("  safety bypass: enabled via --yes-i-know-what-im-doing")
+	}
+	for _, target := range localTargets {
+		log.Printf("  local write target: %s", target)
+	}
+	for _, target := range remoteTargets {
+		log.Printf("  remote write target: %s", target)
+	}
+	for _, src := range sources {
+		if strings.HasPrefix(src.Path(), "gs://") {
+			log.Printf("  remote mutation target: %s", src.Path())
+			continue
+		}
+		log.Printf("  local mutation target: %s", src.Path())
+	}
+}
+
 func startAnalysisCmd(a *analyser.Analyser, ctx context.Context, sources []source.InputSource, cfg *config.Config) tea.Cmd {
 	return func() tea.Msg {
+		approvedRoot, localTargets, remoteTargets, err := validateGuardedAnalysisSafety(cfg)
+		if err != nil {
+			return errMsg{err}
+		}
+		logGuardedAnalysisSafety(cfg, sources, approvedRoot, localTargets, remoteTargets)
+
 		finalReport := a.Run(ctx, sources)
 		if ctx.Err() == context.Canceled {
 			if a.ProcessedFiles.Load() == 0 {
@@ -740,11 +891,15 @@ func pollProgressCmd(m *model) tea.Cmd {
 	})
 }
 
-func performPurgeCmd(recordsToDelete map[string]map[int]bool) tea.Cmd {
+func performPurgeCmd(cfg *config.Config, recordsToDelete map[string]map[int]bool) tea.Cmd {
 	return func() tea.Msg {
+		if _, _, _, err := validateGuardedAnalysisSafety(cfg); err != nil {
+			return purgeResultMsg{err: err}
+		}
+
 		// Create backup directory
 		backupDir := "deleted_records"
-		if err := os.MkdirAll(backupDir, 0755); err != nil {
+		if err := os.MkdirAll(backupDir, 0o755); err != nil {
 			return purgeResultMsg{err: fmt.Errorf("could not create backup dir: %w", err)}
 		}
 
@@ -864,6 +1019,7 @@ func updateMenu(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
+
 func updateOptions(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -1050,6 +1206,7 @@ func updateReport(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
+
 func updatePurgeSelection(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 	var locations []report.LocationInfo
 	if m.purgeCursor < len(m.purgeIDKeys) {
@@ -1085,7 +1242,7 @@ func updatePurgeSelection(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.purgeCursor >= totalToPurge {
 				m.viewState = viewPurging
 				m.status = "Purging records..."
-				return m, tea.Batch(performPurgeCmd(m.recordsToDelete), m.spinner.Tick)
+				return m, tea.Batch(performPurgeCmd(m.buildConfig(), m.recordsToDelete), m.spinner.Tick)
 			}
 		}
 	}
@@ -1096,17 +1253,24 @@ func renderMenu(m *model) string {
 	var content strings.Builder
 
 	// Enhanced title with better branding
-	title := titleStyle.Render("🔍 Dupe Analyser")
-	subtitle := subtitleStyle.Render("Advanced Data Deduplication Tool")
+	title := titleStyle.Render("🔍 Data Refinery")
+	subtitle := subtitleStyle.Render("Interactive analysis, validation, and reporting")
 
 	content.WriteString(title + "\n")
 	content.WriteString(subtitle + "\n\n")
 
 	// Clear description of what the tool does
 	description := descriptionStyle.Render(
-		"Analyze JSON/NDJSON files for duplicate data with advanced filtering,\n" +
-			"schema discovery, and intelligent cleanup capabilities.")
+		"Analyze JSON/NDJSON files for duplicate data, discover schemas,\n" +
+			"and review cleanup opportunities across local storage and GCS.")
 	content.WriteString(description + "\n\n")
+
+	rewriteNote := cardStyle.Render(
+		subtitleStyle.Render("🔁 Rewrite workflow") + "\n\n" +
+			"Source rewrites are currently available through the CLI only.\n" +
+			"Run `data-refinery rewrite ...` when you want to preview or apply\n" +
+			"content changes with backups.")
+	content.WriteString(rewriteNote + "\n\n")
 
 	// Enhanced menu options with clear descriptions
 	menuOptions := []struct {
@@ -1186,6 +1350,7 @@ func renderMenu(m *model) string {
 
 	return content.String()
 }
+
 func renderOptions(m *model) string {
 	var content strings.Builder
 
@@ -1442,8 +1607,9 @@ func renderHelp(m *model) string {
 				"  --output json              Output format (txt/json)\n" +
 				"  --validate                 Quick validation mode\n\n" +
 				"Examples:\n" +
-				"  ./dupe-analyser --path /data --key user_id\n" +
-				"  ./dupe-analyser --headless --path gs://bucket/data --key id --output json")
+				"  ./data-refinery --path /data --key user_id\n" +
+				"  ./data-refinery --headless --path gs://bucket/data --key id --output json\n" +
+				"  ./data-refinery rewrite --path gs://bucket/data --top-level-key id --top-level-vals ids.csv --mode preview")
 		content.WriteString(cmdLine + "\n")
 	}
 
@@ -1746,6 +1912,7 @@ func renderReport(m *model) string {
 	b.WriteString("\n" + helpStyle.Render("Press "+strings.Join(helpParts, ", ")+"."))
 	return b.String()
 }
+
 func renderPurgeSelection(m *model) string {
 	var b strings.Builder
 	var locations []report.LocationInfo

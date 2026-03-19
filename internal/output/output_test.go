@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/config"
-	"github.com/benjaminwestern/dupe-analyser/internal/deletion"
-	"github.com/benjaminwestern/dupe-analyser/internal/report"
-	"github.com/benjaminwestern/dupe-analyser/internal/schema"
-	"github.com/benjaminwestern/dupe-analyser/internal/search"
-	"github.com/benjaminwestern/dupe-analyser/internal/source"
+	"github.com/benjaminwestern/data-refinery/internal/config"
+	"github.com/benjaminwestern/data-refinery/internal/deletion"
+	"github.com/benjaminwestern/data-refinery/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/schema"
+	"github.com/benjaminwestern/data-refinery/internal/search"
+	"github.com/benjaminwestern/data-refinery/internal/source"
 )
 
 func TestNewOutputManager(t *testing.T) {
@@ -276,7 +276,7 @@ func TestOutputManager_ProcessSources(t *testing.T) {
 	// Create a test JSON file
 	testFile := filepath.Join(tmpDir, "test.json")
 	testData := `{"id":"123","name":"test"}` + "\n" + `{"id":"456","name":"another"}`
-	err = os.WriteFile(testFile, []byte(testData), 0644)
+	err = os.WriteFile(testFile, []byte(testData), 0o644)
 	if err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}

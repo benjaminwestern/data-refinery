@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +21,15 @@ const (
 	MetricTypeGauge     MetricType = "gauge"
 	MetricTypeHistogram MetricType = "histogram"
 	MetricTypeSummary   MetricType = "summary"
+)
+
+const (
+	defaultHTTPAPIBindAddress = "127.0.0.1"
+	defaultHTTPReadTimeout    = 10 * time.Second
+	defaultHTTPReadHeaderTime = 5 * time.Second
+	defaultHTTPWriteTimeout   = 30 * time.Second
+	defaultHTTPIdleTimeout    = 60 * time.Second
+	defaultHTTPMaxHeaderBytes = 1 << 20
 )
 
 type DashboardMetric struct {
@@ -62,6 +73,8 @@ type DashboardConfig struct {
 	RetentionDuration  time.Duration `json:"retention_duration"`
 	EnableHTTPAPI      bool          `json:"enable_http_api"`
 	HTTPAPIPort        int           `json:"http_api_port"`
+	HTTPAPIBindAddress string        `json:"http_api_bind_address,omitempty"`
+	HTTPAPIAuthToken   string        `json:"http_api_auth_token,omitempty"`
 	EnableHistoricalDB bool          `json:"enable_historical_db"`
 	DBPath             string        `json:"db_path"`
 }
@@ -383,10 +396,53 @@ func (md *MetricsDashboard) setupHTTPServer() {
 	mux.HandleFunc("/metrics/series", md.handleSeries)
 	mux.HandleFunc("/dashboard", md.handleDashboard)
 
-	md.httpServer = &http.Server{
-		Addr:    fmt.Sprintf(":%d", md.config.HTTPAPIPort),
-		Handler: mux,
+	handler := http.Handler(mux)
+	if token := strings.TrimSpace(md.config.HTTPAPIAuthToken); token != "" {
+		handler = md.requireBearerAuth(handler, token)
 	}
+
+	md.httpServer = &http.Server{
+		Addr:              net.JoinHostPort(resolveHTTPAPIBindAddress(md.config), strconv.Itoa(md.config.HTTPAPIPort)),
+		Handler:           handler,
+		ReadHeaderTimeout: defaultHTTPReadHeaderTime,
+		ReadTimeout:       defaultHTTPReadTimeout,
+		WriteTimeout:      defaultHTTPWriteTimeout,
+		IdleTimeout:       defaultHTTPIdleTimeout,
+		MaxHeaderBytes:    defaultHTTPMaxHeaderBytes,
+	}
+}
+
+func (md *MetricsDashboard) requireBearerAuth(next http.Handler, token string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+token {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func resolveHTTPAPIBindAddress(config DashboardConfig) string {
+	bindAddress := strings.TrimSpace(config.HTTPAPIBindAddress)
+	if bindAddress == "" {
+		return defaultHTTPAPIBindAddress
+	}
+
+	if isLoopbackAddress(bindAddress) || strings.TrimSpace(config.HTTPAPIAuthToken) != "" {
+		return bindAddress
+	}
+
+	return defaultHTTPAPIBindAddress
+}
+
+func isLoopbackAddress(address string) bool {
+	if strings.EqualFold(address, "localhost") {
+		return true
+	}
+
+	parsedIP := net.ParseIP(address)
+	return parsedIP != nil && parsedIP.IsLoopback()
 }
 
 func (md *MetricsDashboard) handleMetrics(w http.ResponseWriter, r *http.Request) {

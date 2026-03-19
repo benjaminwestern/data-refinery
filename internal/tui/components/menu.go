@@ -129,7 +129,7 @@ func (m *MenuComponent) View() string {
 	var b strings.Builder
 
 	// Title
-	b.WriteString(titleStyle.Render("🔍 Duplicate Analyser"))
+	b.WriteString(titleStyle.Render("🔍 Data Refinery"))
 	b.WriteString("\n\n")
 
 	// Status information

@@ -1,5 +1,5 @@
 {
-  "path": "/path/to/data",
+  "path": "/data/orders",
   "key": "id",
   "workers": 8,
   "logPath": "logs",
@@ -13,34 +13,48 @@
   "advanced": {
     "searchTargets": [
       {
-        "name": "target_ids",
+        "name": "customer_ids",
         "type": "direct",
-        "path": "id",
-        "targetValues": ["123", "1234", "12345"],
+        "path": "customer_id",
+        "targetValues": ["cust-123", "cust-456", "cust-789"],
         "caseSensitive": false
       },
       {
         "name": "line_item_ids",
         "type": "nested_array",
-        "path": "line-items[*].line-item-id",
+        "path": "line_items[*].item_id",
         "targetValues": ["li-001", "li-002", "li-003"],
+        "caseSensitive": false
+      },
+      {
+        "name": "product_names",
+        "type": "nested_object",
+        "path": "product.name",
+        "targetValues": ["widget", "bundle"],
         "caseSensitive": false
       }
     ],
     "hashingStrategy": {
       "mode": "exclude_keys",
-      "excludeKeys": ["version-id", "updated-at", "timestamp", "last-modified"]
+      "excludeKeys": ["updated_at", "processed_at", "exported_at"],
+      "algorithm": "fnv",
+      "normalize": true
     },
     "deletionRules": [
       {
-        "searchTarget": "target_ids",
+        "searchTarget": "customer_ids",
         "action": "delete_row",
-        "outputPath": "deleted_rows.jsonl"
+        "outputPath": "derived/deleted-customers.jsonl"
       },
       {
         "searchTarget": "line_item_ids",
         "action": "delete_matches",
-        "outputPath": "cleaned_data.jsonl"
+        "outputPath": "derived/cleaned-line-items.jsonl"
+      },
+      {
+        "searchTarget": "product_names",
+        "action": "mark_for_deletion",
+        "outputPath": "review/product-name-matches.jsonl"
       }
     ],
     "schemaDiscovery": {
@@ -48,8 +62,19 @@
       "samplePercent": 0.1,
       "maxDepth": 5,
       "maxSamples": 50000,
-      "outputFormats": ["json", "csv"],
+      "outputFormats": ["json", "csv", "yaml"],
       "groupByFolder": true
+    },
+    "backup": {
+      "enabled": true,
+      "backupDir": "backups",
+      "retentionDays": 30,
+      "compression": false
+    },
+    "output": {
+      "formats": ["txt", "json"],
+      "destination": "output",
+      "compression": false
     }
   }
 }

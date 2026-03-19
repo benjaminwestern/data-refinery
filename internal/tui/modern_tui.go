@@ -10,10 +10,10 @@ import (
 	"cloud.google.com/go/storage"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/config"
-	"github.com/benjaminwestern/dupe-analyser/internal/memory"
-	"github.com/benjaminwestern/dupe-analyser/internal/state"
-	"github.com/benjaminwestern/dupe-analyser/internal/tui/components"
+	"github.com/benjaminwestern/data-refinery/internal/config"
+	"github.com/benjaminwestern/data-refinery/internal/memory"
+	"github.com/benjaminwestern/data-refinery/internal/state"
+	"github.com/benjaminwestern/data-refinery/internal/tui/components"
 )
 
 // ModernTUI represents the new component-based TUI

@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/report"
-	"github.com/benjaminwestern/dupe-analyser/internal/source"
+	"github.com/benjaminwestern/data-refinery/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/source"
 )
 
 // PurgedRowStorage manages storage of purged rows with original structure preservation
@@ -105,14 +105,18 @@ func (prs *PurgedRowStorage) InitializeStorage(
 	}
 
 	// Create directory structure
-	if err := os.MkdirAll(filepath.Dir(storagePath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(storagePath), 0o700); err != nil {
 		return "", fmt.Errorf("failed to create storage directory: %w", err)
 	}
 
 	// Create storage file
-	file, err := os.Create(storagePath)
+	file, err := os.OpenFile(storagePath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		return "", fmt.Errorf("failed to create storage file: %w", err)
+	}
+	if err := file.Chmod(0o600); err != nil {
+		file.Close()
+		return "", fmt.Errorf("failed to set storage file permissions: %w", err)
 	}
 
 	// Set up writer based on format
@@ -254,20 +258,16 @@ func (prs *PurgedRowStorage) generateStoragePath(sourcePath, operationType strin
 		if err != nil {
 			return "", fmt.Errorf("failed to parse GCS path: %w", err)
 		}
-		relativePath = filepath.Join("gcs", pathInfo.Bucket, pathInfo.ObjectName)
-	} else {
-		// For local paths, preserve directory structure
-		relPath, err := prs.pathResolver.GetRelativePath(sourcePath, prs.basePath)
+		relativePath, err = source.BuildContainedGCSLocalPath(operationDir, pathInfo.Bucket, pathInfo.ObjectName)
 		if err != nil {
-			// Use absolute path structure if relative fails
-			absPath, absErr := filepath.Abs(sourcePath)
-			if absErr != nil {
-				return "", fmt.Errorf("failed to get path structure: %w", err)
-			}
-			relativePath = strings.TrimPrefix(absPath, "/")
-		} else {
-			relativePath = filepath.Join("local", relPath)
+			return "", fmt.Errorf("failed to build contained GCS storage path: %w", err)
 		}
+	} else {
+		containedPath, err := source.BuildContainedLocalPath(operationDir, sourcePath)
+		if err != nil {
+			return "", fmt.Errorf("failed to build contained local storage path: %w", err)
+		}
+		relativePath = containedPath
 	}
 
 	// Add purged suffix to filename
@@ -277,7 +277,7 @@ func (prs *PurgedRowStorage) generateStoragePath(sourcePath, operationType strin
 	baseName := strings.TrimSuffix(fileName, ext)
 
 	purgedFileName := fmt.Sprintf("%s_purged%s", baseName, ext)
-	storagePath := filepath.Join(operationDir, dir, purgedFileName)
+	storagePath := filepath.Join(dir, purgedFileName)
 
 	return storagePath, nil
 }
@@ -314,11 +314,14 @@ func (prs *PurgedRowStorage) writeMetadata(storageKey string) error {
 	}
 
 	metadataPath := metadata.TargetPath + ".metadata.json"
-	metadataFile, err := os.Create(metadataPath)
+	metadataFile, err := os.OpenFile(metadataPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("failed to create metadata file: %w", err)
 	}
 	defer metadataFile.Close()
+	if err := metadataFile.Chmod(0o600); err != nil {
+		return fmt.Errorf("failed to set metadata file permissions: %w", err)
+	}
 
 	encoder := json.NewEncoder(metadataFile)
 	encoder.SetIndent("", "  ")

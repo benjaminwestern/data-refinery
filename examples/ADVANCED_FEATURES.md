@@ -1,248 +1,159 @@
-# Advanced De-duplication Features
+# Advanced analysis features
 
-This document describes the advanced features added to the de-duplication system.
+Advanced analysis extends the read-only side of Data Refinery. Use it when you
+need more than duplicate counts and key validation, such as targeted search,
+schema discovery, business-key dedupe rules, or derived cleanup artifacts that
+help you plan a later rewrite.
 
-## New Features
+## How advanced analysis is loaded
 
-### 1. Enhanced Configuration System
+Advanced analysis lives inside the standard app config model. The recommended
+way to run these files is with `--app-config`, although copying a template into
+an implicit config location still works when you want that behavior.
 
-The system now supports advanced configuration through the `advanced` section in your config file:
+```sh
+./data-refinery --app-config examples/test_full_advanced.json -headless
+```
+
+Use CLI flags when you want to override a loaded setting for one run.
+
+## What the advanced model covers
+
+All advanced analysis settings live under the `advanced` block in your config.
+The model is built around four questions:
+
+- Which records or nested values match a business-defined target list?
+- Which fields should define duplicate rows?
+- What does the observed schema look like across folders or samples?
+- Which derived artifacts do you want to review before a cleanup run?
 
 ```json
 {
   "advanced": {
-    "searchTargets": [...],
-    "hashingStrategy": {...},
-    "deletionRules": [...],
-    "schemaDiscovery": {...}
+    "searchTargets": [],
+    "hashingStrategy": {},
+    "deletionRules": [],
+    "schemaDiscovery": {},
+    "backup": {},
+    "output": {}
   }
 }
 ```
 
-### 2. Schema Discovery
+## Core capabilities
 
-Automatically analyze and discover the schema of your JSON data:
+This section maps the advanced settings to the behavior you get at runtime.
 
-```json
-{
-  "schemaDiscovery": {
-    "enabled": true,
-    "samplePercent": 0.1,
-    "maxDepth": 5,
-    "maxSamples": 50000,
-    "outputFormats": ["json", "csv", "yaml"],
-    "groupByFolder": true
-  }
-}
+### Search targets
+
+Search targets define what to look for and where to look for it.
+
+| Type | Best for | Example path |
+| --- | --- | --- |
+| `direct` | Top-level key matching | `customer_id` |
+| `nested_object` | Nested object traversal | `product.name` |
+| `nested_array` | Matching inside repeated items | `line_items[*].item_id` |
+| `jsonpath` | More expressive traversal patterns | `$.items[*].sku` |
+
+Each target needs a unique `name`, a `type`, a `path`, and one or more
+`targetValues`.
+
+### Hashing strategy
+
+Hashing controls what counts as a duplicate row.
+
+| Mode | Behavior |
+| --- | --- |
+| `full_row` | Hash the complete row. |
+| `selective` | Hash only the keys listed in `includeKeys`. |
+| `exclude_keys` | Hash everything except the keys listed in `excludeKeys`. |
+
+Use `exclude_keys` when operational timestamps or ingestion metadata change
+often. Use `selective` when only a small set of business fields should define
+identity.
+
+### Deletion rules
+
+Deletion rules in advanced analysis do not rewrite the source dataset. They
+generate derived outputs that help you review or stage later cleanup work.
+
+| Action | Result |
+| --- | --- |
+| `delete_row` | Emit artifacts for rows that should be removed entirely. |
+| `delete_matches` | Emit artifacts for rows where matching nested values should be removed. |
+| `mark_for_deletion` | Emit rows with deletion metadata for review workflows. |
+| `delete_sub_key` | Target a specific nested sub-key for derived cleanup output. |
+
+Each rule references a `searchTarget` by name.
+
+### Schema discovery
+
+Schema discovery samples records and records what fields appear, how often they
+appear, and which types were observed.
+
+Use it when you want to:
+
+- understand a new dataset before choosing a dedupe key
+- compare folder-level shape differences
+- confirm whether a cleanup rule should be broad or tightly scoped
+
+## Concrete examples
+
+These examples show the quickest way to use the advanced model for real jobs.
+
+### Schema-only exploration
+
+Use `schema_only_config.json` when you want to map the shape of a dataset
+before you decide how to dedupe or rewrite it.
+
+```sh
+./data-refinery --app-config examples/schema_only_config.json -headless
 ```
 
-**Features:**
-- Sample a percentage of your data for analysis
-- Discover field types, occurrence rates, and examples
-- Export schema in JSON, CSV, or YAML formats
-- Group schema analysis by folder for comparative analysis
+### Search plus derived cleanup review
 
-### 3. Advanced Search Engine
+Use `test_config.json` when you want to search for specific customers or line
+items, inspect duplicate behavior, and generate deletion artifacts without
+touching the source data.
 
-Search for specific values in complex nested structures:
-
-```json
-{
-  "searchTargets": [
-    {
-      "name": "target_ids",
-      "type": "direct",
-      "path": "id",
-      "targetValues": ["123", "1234", "12345"],
-      "caseSensitive": false
-    },
-    {
-      "name": "line_item_ids", 
-      "type": "nested_array",
-      "path": "line-items[*].line-item-id",
-      "targetValues": ["li-001", "li-002"],
-      "caseSensitive": false
-    }
-  ]
-}
+```sh
+./data-refinery --app-config examples/test_config.json -headless
 ```
 
-**Search Types:**
-- `direct`: Simple key-value matching
-- `nested_array`: Search within arrays
-- `nested_object`: Deep object traversal
-- `jsonpath`: JSONPath-like queries
+### Business-key duplicate detection
 
-### 4. Selective Hashing
-
-Choose which fields to include in deduplication hashing:
-
-```json
-{
-  "hashingStrategy": {
-    "mode": "exclude_keys",
-    "excludeKeys": ["version-id", "updated-at", "timestamp"]
-  }
-}
-```
-
-**Modes:**
-- `full_row`: Hash entire row (default)
-- `selective`: Hash only specified keys
-- `exclude_keys`: Hash everything except specified keys
-
-### 5. Deletion and Purging
-
-Define rules for what to do with matched data:
-
-```json
-{
-  "deletionRules": [
-    {
-      "searchTarget": "target_ids",
-      "action": "delete_row",
-      "outputPath": "deleted_rows.jsonl"
-    },
-    {
-      "searchTarget": "line_item_ids",
-      "action": "delete_matches", 
-      "outputPath": "cleaned_data.jsonl"
-    }
-  ]
-}
-```
-
-**Actions:**
-- `delete_row`: Remove entire rows containing matches
-- `delete_matches`: Remove only matching elements
-- `mark_for_deletion`: Add metadata marking for deletion
-
-## Usage Examples
-
-### Example 1: Target ID Deletion
-
-Delete rows containing specific IDs:
-
-```json
-{
-  "advanced": {
-    "searchTargets": [
-      {
-        "name": "target_ids",
-        "type": "direct", 
-        "path": "id",
-        "targetValues": ["123", "1234", "12345"]
-      }
-    ],
-    "deletionRules": [
-      {
-        "searchTarget": "target_ids",
-        "action": "delete_row",
-        "outputPath": "deleted_rows.jsonl"
-      }
-    ]
-  }
-}
-```
-
-### Example 2: Line Item Purging
-
-Remove specific line items from arrays:
-
-```json
-{
-  "advanced": {
-    "searchTargets": [
-      {
-        "name": "line_item_ids",
-        "type": "nested_array",
-        "path": "line-items[*].line-item-id", 
-        "targetValues": ["li-001", "li-002", "li-003", "..."]
-      }
-    ],
-    "deletionRules": [
-      {
-        "searchTarget": "line_item_ids",
-        "action": "delete_matches",
-        "outputPath": "cleaned_data.jsonl"
-      }
-    ]
-  }
-}
-```
-
-### Example 3: Schema Discovery Only
-
-Analyze data structure without processing:
-
-```json
-{
-  "checkKey": false,
-  "checkRow": false,
-  "advanced": {
-    "schemaDiscovery": {
-      "enabled": true,
-      "samplePercent": 0.05,
-      "maxDepth": 10,
-      "outputFormats": ["json", "csv"],
-      "groupByFolder": true
-    }
-  }
-}
-```
-
-### Example 4: Selective Deduplication
-
-Hash only relevant fields for deduplication:
+Use `selective_hash_config.json` when timestamps or operational metadata should
+not affect duplicate-row matching.
 
 ```json
 {
   "advanced": {
     "hashingStrategy": {
-      "mode": "exclude_keys",
-      "excludeKeys": ["version-id", "updated-at", "timestamp", "last-modified"]
+      "mode": "selective",
+      "includeKeys": ["customer_id", "product.name", "line_items"],
+      "normalize": true
     }
   }
 }
 ```
 
-## Output Files
+## Generated artifacts
 
-The system now generates additional output files:
+Advanced analysis writes extra artifacts under `logPath` when the matching
+feature is enabled.
 
-- `schema_report_TIMESTAMP.json` - Schema analysis in JSON format
-- `schema_report_TIMESTAMP.csv` - Schema analysis in CSV format
-- `search_results_TIMESTAMP.json` - Search results summary
-- `search_target_NAME_TIMESTAMP.json` - Results for specific search targets
-- `deletion_stats_TIMESTAMP.json` - Deletion operation statistics
-- `deletion_summary_TIMESTAMP.txt` - Human-readable deletion summary
+- `search_results_*.json` for the combined search result set.
+- `search_target_<name>_*.json` for per-target search output.
+- `schema_report_*.json`, `schema_report_*.csv`, and
+  `schema_report_*.yaml` for schema discovery.
+- `deletion_stats_*.json` and `deletion_summary_*.txt` for deletion-rule
+  output.
+- `analysis_summary_*.txt`, `analysis_details_*.txt`, and
+  `analysis_report_*.json` when standard report output is enabled.
 
-## Performance Considerations
+## When to move to rewrite
 
-- **Sampling**: Use appropriate sample percentages to balance accuracy with performance
-- **Depth Limits**: Set reasonable max depth values for nested analysis
-- **Memory Usage**: Large datasets may require tuning of `maxSamples` parameter
-- **Workers**: Adjust worker count based on your system capabilities
-
-## Configuration Validation
-
-The system validates your configuration and will report errors for:
-- Invalid search target types
-- Missing required fields
-- Circular references in deletion rules
-- Invalid hashing strategies
-
-## Migration from Legacy
-
-Your existing configurations will continue to work. Advanced features are opt-in through the `advanced` section.
-
-## Examples Directory
-
-See the `examples/` directory for complete configuration examples:
-- `advanced_config.json` - Full advanced configuration
-- `schema_only_config.json` - Schema discovery only
-- `selective_hash_config.json` - Selective hashing example
-- `comprehensive_test.json` - End-to-end sample config for local `test_data/`
-- `test_advanced.json` - Minimal advanced config for local `test_data/`
-- `test_config.json` - Manual test config covering search, deletion, and schema output
-- `test_full_advanced.json` - Compact full-feature config for local `test_data/`
+Stay in advanced analysis when you still need to answer questions about scope,
+shape, or candidate records. Move to `data-refinery rewrite` once the analysis
+output tells you exactly which rows or values should change and you are ready
+for preview plus backups.

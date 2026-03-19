@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/backup"
-	"github.com/benjaminwestern/dupe-analyser/internal/errors"
-	"github.com/benjaminwestern/dupe-analyser/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/backup"
+	"github.com/benjaminwestern/data-refinery/internal/errors"
+	"github.com/benjaminwestern/data-refinery/internal/report"
 )
 
 // InteractivePurgeEngine handles interactive purging operations with comprehensive error handling
@@ -86,14 +86,14 @@ func NewInteractivePurgeEngine(ctx context.Context, backupManager *backup.Purged
 	tempDir := config.TempDir
 	if tempDir == "" {
 		var err error
-		tempDir, err = os.MkdirTemp("", "dupe-analyser-purge-*")
+		tempDir, err = os.MkdirTemp("", "data-refinery-purge-*")
 		if err != nil {
 			return nil, fmt.Errorf("failed to create temp directory: %w", err)
 		}
 	}
 
 	// Ensure temp directory exists
-	if err := os.MkdirAll(tempDir, 0755); err != nil {
+	if err := os.MkdirAll(tempDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
 
@@ -143,7 +143,6 @@ func (ipe *InteractivePurgeEngine) ProcessInteractivePurge(
 
 		lineNumbers := recordsToDelete[filePath]
 		transaction, err := ipe.processFile(filePath, lineNumbers, config)
-
 		if err != nil {
 			result.FailedFiles++
 			result.TotalErrors++

@@ -6,17 +6,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"cloud.google.com/go/storage"
-	"github.com/benjaminwestern/dupe-analyser/internal/backup"
-	"github.com/benjaminwestern/dupe-analyser/internal/config"
-	"github.com/benjaminwestern/dupe-analyser/internal/path"
-	"github.com/benjaminwestern/dupe-analyser/internal/report"
-	"github.com/benjaminwestern/dupe-analyser/internal/search"
-	"github.com/benjaminwestern/dupe-analyser/internal/source"
+	"github.com/benjaminwestern/data-refinery/internal/backup"
+	"github.com/benjaminwestern/data-refinery/internal/config"
+	"github.com/benjaminwestern/data-refinery/internal/path"
+	"github.com/benjaminwestern/data-refinery/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/search"
+	"github.com/benjaminwestern/data-refinery/internal/source"
 )
 
 // DeletionEngine handles deletion and purging operations
@@ -624,10 +625,17 @@ func (de *DeletionEngine) writeToOutput(outputPath string, data any) error {
 		// Handle local file output
 		file, exists := de.outputPaths[outputPath]
 		if !exists {
+			if err := os.MkdirAll(filepath.Dir(outputPath), 0o700); err != nil {
+				return fmt.Errorf("failed to create output directory for %s: %w", outputPath, err)
+			}
 			var err error
-			file, err = os.Create(outputPath)
+			file, err = os.OpenFile(outputPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 			if err != nil {
 				return fmt.Errorf("failed to create output file %s: %w", outputPath, err)
+			}
+			if err := file.Chmod(0o600); err != nil {
+				file.Close()
+				return fmt.Errorf("failed to set output file permissions for %s: %w", outputPath, err)
 			}
 			de.outputPaths[outputPath] = file
 		}
@@ -871,5 +879,9 @@ func (dr *DeletionReport) SaveReport(filename string) error {
 		return fmt.Errorf("failed to marshal report: %w", err)
 	}
 
-	return os.WriteFile(filename, data, 0644)
+	if err := os.MkdirAll(filepath.Dir(filename), 0o700); err != nil {
+		return fmt.Errorf("failed to create report directory: %w", err)
+	}
+
+	return os.WriteFile(filename, data, 0o600)
 }

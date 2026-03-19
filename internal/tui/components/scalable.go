@@ -11,7 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/tui/layout"
+	"github.com/benjaminwestern/data-refinery/internal/tui/layout"
 )
 
 // ScalableComponent represents a component that can adapt to different terminal sizes

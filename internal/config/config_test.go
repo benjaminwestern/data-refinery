@@ -68,7 +68,7 @@ func TestLoad_ValidConfig(t *testing.T) {
 
 	// Create config directory and file
 	configDir := "config"
-	os.MkdirAll(configDir, 0755)
+	os.MkdirAll(configDir, 0o755)
 
 	testConfig := Config{
 		Path:                "/test/path",
@@ -86,7 +86,7 @@ func TestLoad_ValidConfig(t *testing.T) {
 
 	data, _ := json.MarshalIndent(testConfig, "", "  ")
 	configPath := filepath.Join(configDir, "config.json")
-	os.WriteFile(configPath, data, 0644)
+	os.WriteFile(configPath, data, 0o644)
 
 	cfg, err := Load()
 	if err != nil {
@@ -108,6 +108,12 @@ func TestLoad_ValidConfig(t *testing.T) {
 	if cfg.EnableTxtOutput != true {
 		t.Error("Expected EnableTxtOutput to be true")
 	}
+	if cfg.LoadedConfigPath == "" {
+		t.Error("Expected LoadedConfigPath to be set for implicitly loaded config")
+	}
+	if !cfg.ConfigLoadedImplicitly {
+		t.Error("Expected implicit config load to be recorded")
+	}
 }
 
 func TestLoad_InvalidJSON(t *testing.T) {
@@ -118,15 +124,83 @@ func TestLoad_InvalidJSON(t *testing.T) {
 
 	// Create config directory and invalid JSON file
 	configDir := "config"
-	os.MkdirAll(configDir, 0755)
+	os.MkdirAll(configDir, 0o755)
 
 	invalidJSON := `{"path": "/test", "workers": invalid_number}`
 	configPath := filepath.Join(configDir, "config.json")
-	os.WriteFile(configPath, []byte(invalidJSON), 0644)
+	os.WriteFile(configPath, []byte(invalidJSON), 0o644)
 
 	_, err := Load()
 	if err == nil {
 		t.Fatal("Expected error for invalid JSON, got nil")
+	}
+}
+
+func TestLoadWithOptions_ExplicitPath(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	configPath := filepath.Join(tmpDir, "app.json")
+	testConfig := Config{
+		Key:     "id",
+		LogPath: "explicit-logs",
+		Workers: 3,
+	}
+
+	data, _ := json.MarshalIndent(testConfig, "", "  ")
+	if err := os.WriteFile(configPath, data, 0o644); err != nil {
+		t.Fatalf("failed to write explicit config: %v", err)
+	}
+
+	cfg, err := LoadWithOptions(LoadOptions{
+		ExplicitPath:  configPath,
+		AllowImplicit: false,
+	})
+	if err != nil {
+		t.Fatalf("expected explicit load to succeed, got %v", err)
+	}
+
+	if got, want := cfg.LogPath, "explicit-logs"; got != want {
+		t.Fatalf("expected log path %q, got %q", want, got)
+	}
+	if got, want := cfg.LoadedConfigPath, configPath; got != want {
+		t.Fatalf("expected explicit loaded path %q, got %q", want, got)
+	}
+	if cfg.ConfigLoadedImplicitly {
+		t.Fatal("expected explicit config load to not be marked implicit")
+	}
+}
+
+func TestLoadWithOptions_DisallowImplicitSkipsConfigFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	originalDir, _ := os.Getwd()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
+	defer os.Chdir(originalDir)
+
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+
+	configPath := filepath.Join(configDir, configFile)
+	testConfig := Config{
+		LogPath: "implicit-logs",
+	}
+	data, _ := json.MarshalIndent(testConfig, "", "  ")
+	if err := os.WriteFile(configPath, data, 0o644); err != nil {
+		t.Fatalf("failed to write implicit config: %v", err)
+	}
+
+	cfg, err := LoadWithOptions(LoadOptions{AllowImplicit: false})
+	if err != nil {
+		t.Fatalf("expected no error when implicit loading is disabled, got %v", err)
+	}
+
+	if got, want := cfg.LogPath, "logs"; got != want {
+		t.Fatalf("expected default log path %q, got %q", want, got)
+	}
+	if cfg.LoadedConfigPath != "" {
+		t.Fatalf("expected no loaded config path, got %q", cfg.LoadedConfigPath)
 	}
 }
 
@@ -168,7 +242,7 @@ func TestLoadAdvanced_ValidConfig(t *testing.T) {
 
 	data, _ := json.MarshalIndent(testConfig, "", "  ")
 	configPath := filepath.Join(tmpDir, "advanced_config.json")
-	os.WriteFile(configPath, data, 0644)
+	os.WriteFile(configPath, data, 0o644)
 
 	cfg, err := LoadAdvanced(configPath)
 	if err != nil {
@@ -193,6 +267,9 @@ func TestLoadAdvanced_ValidConfig(t *testing.T) {
 	if cfg.Advanced.HashingStrategy.Mode != "exclude_keys" {
 		t.Errorf("Expected hashing mode 'exclude_keys', got '%s'", cfg.Advanced.HashingStrategy.Mode)
 	}
+	if got, want := cfg.LoadedConfigPath, configPath; got != want {
+		t.Errorf("Expected LoadedConfigPath %q, got %q", want, got)
+	}
 }
 
 func TestLoadAdvanced_Defaults(t *testing.T) {
@@ -215,7 +292,7 @@ func TestLoadAdvanced_Defaults(t *testing.T) {
 
 	data, _ := json.MarshalIndent(testConfig, "", "  ")
 	configPath := filepath.Join(tmpDir, "minimal_config.json")
-	os.WriteFile(configPath, data, 0644)
+	os.WriteFile(configPath, data, 0o644)
 
 	cfg, err := LoadAdvanced(configPath)
 	if err != nil {
@@ -453,6 +530,53 @@ func TestAdvancedConfig_Validate(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestResolveApprovedOutputRootDefaultsToWorkingDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	originalDir, _ := os.Getwd()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
+	defer os.Chdir(originalDir)
+
+	root, err := ResolveApprovedOutputRoot("")
+	if err != nil {
+		t.Fatalf("ResolveApprovedOutputRoot returned error: %v", err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get working directory: %v", err)
+	}
+	if got, want := root, cwd; got != want {
+		t.Fatalf("expected approved root %q, got %q", want, got)
+	}
+}
+
+func TestValidateLocalWriteTargetsRejectsEscapes(t *testing.T) {
+	root := t.TempDir()
+	outsideTarget := filepath.Join(root, "..", "escape.txt")
+
+	_, err := ValidateLocalWriteTargets(root, []string{outsideTarget})
+	if err == nil {
+		t.Fatal("expected escaping local target to be rejected")
+	}
+}
+
+func TestValidateLocalWriteTargetsReturnsAbsolutePaths(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "nested", "artifact.json")
+
+	targets, err := ValidateLocalWriteTargets(root, []string{target, target})
+	if err != nil {
+		t.Fatalf("ValidateLocalWriteTargets returned error: %v", err)
+	}
+	if len(targets) != 1 {
+		t.Fatalf("expected deduped targets, got %v", targets)
+	}
+	if got, want := targets[0], filepath.Clean(target); got != want {
+		t.Fatalf("expected absolute target %q, got %q", want, got)
 	}
 }
 

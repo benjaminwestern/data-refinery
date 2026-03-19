@@ -6,7 +6,7 @@ import (
 	"hash/fnv"
 	"testing"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/report"
 )
 
 func TestNewRowProcessor(t *testing.T) {
@@ -58,7 +58,6 @@ func TestRowProcessor_ProcessRow_KeyCheck(t *testing.T) {
 
 	hasher := fnv.New64a()
 	err := processor.ProcessRow(data, location, hasher)
-
 	if err != nil {
 		t.Fatalf("ProcessRow failed: %v", err)
 	}
@@ -98,7 +97,6 @@ func TestRowProcessor_ProcessRow_RowHash(t *testing.T) {
 
 	hasher := fnv.New64a()
 	err := processor.ProcessRow(data, location, hasher)
-
 	if err != nil {
 		t.Fatalf("ProcessRow failed: %v", err)
 	}
@@ -155,7 +153,6 @@ func TestRowProcessor_ProcessRow_ValidateOnly(t *testing.T) {
 
 	hasher := fnv.New64a()
 	err := processor.ProcessRow(data, location, hasher)
-
 	if err != nil {
 		t.Fatalf("ProcessRow failed: %v", err)
 	}
@@ -195,7 +192,6 @@ func TestRowProcessor_ProcessRow_NoKey(t *testing.T) {
 
 	hasher := fnv.New64a()
 	err := processor.ProcessRow(data, location, hasher)
-
 	if err != nil {
 		t.Fatalf("ProcessRow failed: %v", err)
 	}

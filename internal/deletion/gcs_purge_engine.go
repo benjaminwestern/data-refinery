@@ -9,9 +9,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/backup"
-	"github.com/benjaminwestern/dupe-analyser/internal/report"
-	"github.com/benjaminwestern/dupe-analyser/internal/source"
+	"github.com/benjaminwestern/data-refinery/internal/backup"
+	"github.com/benjaminwestern/data-refinery/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/source"
 )
 
 // GCSPurgeEngine handles purging operations for GCS files with streaming
@@ -190,7 +190,6 @@ func (gpe *GCSPurgeEngine) ProcessIDBasedPurge(
 		result.ProcessedRowCount++
 		return line, true // Keep this row
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to process file: %w", err)
 	}
@@ -341,7 +340,6 @@ func (gpe *GCSPurgeEngine) ProcessNestedArrayPurge(
 		result.ModifiedRowCount++
 		return modifiedLine, true
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to process file: %w", err)
 	}

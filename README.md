@@ -1,191 +1,419 @@
-# Dupe Analyser
+# Data Refinery
 
-A high-performance Go utility for finding duplicate data within large sets of local or cloud-based JSON and NDJSON files.
+Data Refinery helps you inspect large JSON, NDJSON, and JSONL datasets and run
+preview-first cleanup jobs across local storage and Google Cloud Storage
+(GCS). Use it when you need one tool for duplicate analysis, schema discovery,
+targeted record review, and operational rewrite workflows with backups.
 
-![Main Menu](assets/menu.png)
+Data Refinery keeps analysis and mutation separate on purpose. You can stay in
+read-only analysis until you understand the scope of a cleanup, then move to a
+guarded mutation flow when you are ready to act.
 
-## Introduction
+> **Start here:** Build the binary, validate a key against `./test_data`, then
+> run one headless analysis and one rewrite preview. The commands in the next
+> section get you there in a few minutes.
 
-I created Dupe Analyser out of a need to bulk validate large sets of historical data against newly crawled information. When dealing with hundreds of gigabytes of data across thousands of files, it became critical to have a tool that could quickly profile the data's integrity and then perform a deep analysis to find duplicate entries based on unique keys or entire row content.
+## Why Data Refinery exists
 
-This tool is designed to be fast, memory-efficient, and flexible, offering both an interactive Terminal User Interface (TUI) for hands-on work and a headless CLI mode for automation.
+Data Refinery replaces the usual mix of one-off scripts, manual spot checks,
+and risky in-place edits with a repeatable workflow. It gives you a fast way
+to understand a dataset first and only mutate data once you can explain the
+change you are about to make.
 
-This project was developed with the help of Google's Gemini 2.5 Pro as my 'rubber duck', which was invaluable for validating ideas and working through complex state management challenges and also who I will be blaming for any bad or non-optimal code :)
+- Data Refinery brings duplicate analysis, targeted search, schema discovery,
+  and cleanup planning into one CLI, so you do not need separate utilities for
+  each stage of the job.
+- Data Refinery supports both local paths and `gs://` URIs, which lets you use
+  the same operating model whether your data sits on disk or in GCS.
+- Data Refinery keeps mutation workflows preview-first and backup-aware, which
+  lowers the chance of making a large cleanup change without context or a
+  recovery path.
 
-Gemini also wrote this readme because I was lazy...
+## Quick start
 
-## Key Features
+This quick start uses the repository's checked-in fixture data so you can see
+the main workflows without preparing your own dataset first. The local
+commands work without any cloud setup.
 
-* **Dual-Mode Operation:** Run with a rich, interactive TUI or as a standard headless CLI application.
-* **Multi-Source Support:** Analyse files from local directories and Google Cloud Storage (GCS) buckets in the same run.
-* **Flexible Analysis:** Find duplicates based on a specific JSON key (`-key`) or by hashing the entire content of each row.
-* **Data Profiling:** A fast "Validator" mode to quickly check for the presence and count of a key across all files before running a full analysis.
-* **Advanced Matching and Cleanup:** Configure targeted search, schema discovery, selective hashing, and deletion rules for more complex deduplication workflows.
-* **Robust Session Management:** Cancel, continue, and restart analysis jobs from within the TUI.
-* **Comprehensive Reporting:** Detailed summary reports and per-folder breakdown tables give a clear overview of the results.
-* **Intelligent Path Handling:** Automatically de-duplicates sources when overlapping paths (e.g., `./data` and `../project/data`) are provided.
-* **Persistent Configuration:** User preferences are saved to `config/config.json` for a consistent experience across sessions.
+1. Install the toolchain and build the binary.
 
-## Installation
+   ```sh
+   mise install
+   go build -o data-refinery ./cmd/data-refinery
+   ```
 
-Ensure you have Go installed (version 1.21 or newer). I will try and get it up into go packages soon.
-For now you will either need to build / go run from `cmd`
+2. Run a fast key validation pass against the sample data.
 
-## Usage
+   ```sh
+   ./data-refinery -validate -path ./test_data -key id
+   ```
 
-Dupe Analyser can be run in two main modes: an interactive TUI (default) or a headless CLI mode.
+3. Run a full headless analysis and save both text and JSON reports.
 
-### TUI (Interactive Mode)
+   ```sh
+   ./data-refinery \
+     -headless \
+     -path ./test_data \
+     -key id \
+     -output txt \
+     -output.txt=true \
+     -output.json=true
+   ```
 
-To start the TUI, simply run the application without the `-headless` or `-validate` flags.
+4. Run an advanced analysis from an explicit app config instead of relying on
+   implicit config discovery.
 
-```sh
-dupe-analyser -path /path/to/data
+   ```sh
+   ./data-refinery \
+     --app-config examples/test_full_advanced.json \
+     -headless
+   ```
+
+5. Preview a rewrite job from a portable rewrite config.
+
+   ```sh
+   ./data-refinery rewrite -config examples/rewrite-delete-config.json
+   ```
+
+> **Note:** For GCS paths, authenticate with Google Application Default
+> Credentials before you run the command. Data Refinery uses your ambient
+> Google credentials rather than a custom auth layer.
+
+## Choose the right workflow
+
+Data Refinery has two primary operating modes. Use analysis to understand the
+dataset and use rewrite when you are ready to change source records.
+
+| Workflow | Main command | Best for | Mutates source data |
+| --- | --- | --- | --- |
+| Analysis | `./data-refinery` or `./data-refinery -headless` | Duplicate review, key validation, search, schema discovery, derived cleanup artifacts, and interactive local purge | No, except local purge flows that you explicitly enable in the TUI |
+| Rewrite | `./data-refinery rewrite ...` | Previewing or applying streamed cleanup rules to local files or GCS objects | Yes, in `apply` mode only |
+
+The analysis command also accepts `analyse`, `analyze`, and `analysis` as
+aliases if you prefer an explicit subcommand.
+
+## How Data Refinery works
+
+At a high level, Data Refinery resolves input sources, streams records through
+either the analysis or rewrite engine, and writes logs or artifacts under a
+controlled output path. The internal complexity stays behind those two user
+interfaces.
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#e8f0fe', 'primaryTextColor': '#111827', 'primaryBorderColor': '#6b7280', 'secondaryColor': '#f3f4f6', 'tertiaryColor': '#ffffff', 'lineColor': '#6b7280' }}}%%
+flowchart LR
+  A["Local files or gs:// URIs"] --> B["Source discovery"]
+  B --> C{"Workflow"}
+  C --> D["Analysis engine"]
+  C --> E["Rewrite engine"]
+  D --> F["Reports, search results, schema output, and derived review artifacts"]
+  E --> G["Preview summary or apply with timestamped backups"]
 ```
 
-You will be greeted with a main menu that allows you to:
+## Analysis workflow
 
-* **Start Validator:** A fast, read-only mode to check for the existence and count of a specific key. This is perfect for profiling your data before a full analysis.
-* **Start Full Analysis:** The main mode for finding duplicate keys and rows.
-* **Options:** Configure settings like worker count, report generation, and purge options. Changes are saved automatically.
-* **Quit:** Exit the application.
+Use analysis when you need to understand a dataset before deciding whether it
+needs a cleanup. Analysis can run in the TUI for interactive work or in
+headless mode for scripts, CI, and repeatable validation jobs.
 
-#### TUI Workflow
+### Interactive analysis
 
-1. **Main Menu:** Choose your action.
-    ![Main Menu](assets/menu.png)
-
-2. **Path Input:** Provide one or more comma-separated local or GCS paths.
-    ![Path Input](assets/path_input.png)
-
-3. **Key Input:** Specify the unique key for the analysis.
-    ![Key Input](assets/key_input.png)
-
-4. **Processing:** Monitor the progress of the job in real-time.
-    ![Progress Bar](assets/progress_bar.png)
-
-5. **Report Screen:** View the results.
-    * **Validation Report:**
-      ![Validation Report](assets/validation_output.png)
-    * **Analysis Report:**
-      ![Analysis Report](assets/analysis_output.png)
-    * **Partial Report (after cancellation):**
-      ![Cancelled Task Report](assets/cancelled_task.png)
-
-6. **Options Menu:** Configure all settings interactively.
-    ![Options Menu](assets/config_menu.png)
-
-### Advanced configuration
-
-For more complex workflows, you can define advanced behavior in your config file.
-This lets you combine targeted search, schema discovery, selective hashing, and
-deletion rules in a single run.
-
-See `examples/ADVANCED_FEATURES.md` for a full walkthrough and sample configs in
-`examples/advanced_config.json`, `examples/schema_only_config.json`, and
-`examples/selective_hash_config.json`.
-
-#### TUI Keybindings
-
-| Key        | Action                                                  |
-|------------|---------------------------------------------------------|
-| `↑` / `↓`  | Navigate menus.                                         |
-| `enter`    | Select an option or submit input.                       |
-| `esc`      | Go back to the previous menu.                           |
-| `q`, `ctrl+c` | Cancel an ongoing job or quit the application.        |
-| `?`        | Show the help screen (from main menu).                  |
-| `r`        | **Restart** the last job from the beginning.            |
-| `c`        | **Continue** a previously cancelled job from where it left off. |
-| `n`        | Start a **New Job**, clearing previous paths and keys.    |
-| `a`        | Run a **Full Analysis** after a validation report.      |
-| `p`        | **Purge** duplicates (local files only, after analysis).|
-
-### Headless (CLI Mode)
-
-For scripting and automation, use the `-headless` or `-validate` flags. The report will be printed directly to the console.
-
-**Full Analysis Example:**
+Run the binary without `-headless` or `-validate` when you want a guided
+terminal UI. The TUI lets you configure paths, worker counts, duplicate checks,
+advanced analysis settings, and local purge flows in one place.
 
 ```sh
-dupe-analyser -headless -path /path/a,/path/b -key user_id -check.row=true
+./data-refinery -path ./test_data
 ```
 
-**Validation Example:**
+### Headless analysis and validation
+
+Run headless mode when you want stdout output plus optional saved reports. Run
+validation mode when you only need to confirm that a key exists and count how
+often it appears.
 
 ```sh
-dupe-analyser -validate -path gs://my-bucket/stuff -key order_id
+./data-refinery \
+  -headless \
+  -path ./test_data,gs://example-bucket/orders \
+  -key id \
+  -output json
 ```
 
-#### All CLI Flags
+```sh
+./data-refinery -validate -path ./test_data -key id
+```
 
-| Flag                  | Default    | Description                                                          |
-|-----------------------|------------|----------------------------------------------------------------------|
-| `-path`               | `""`       | Comma-separated list of paths to analyse (local or GCS). Required.   |
-| `-key`                | `"id"`     | JSON key to check for uniqueness.                                    |
-| `-workers`            | `8`        | Number of concurrent workers.                                        |
-| `-log-path`           | `"logs"`   | Directory to save logs and reports.                                  |
-| `-validate`           | `false`    | Run a key validation test and exit (headless only).                  |
-| `-headless`           | `false`    | Run without TUI and print report to stdout.                          |
-| `-check.key`          | `true`     | Enable duplicate key check.                                          |
-| `-check.row`          | `true`     | Enable duplicate row check (hashing).                                |
-| `-output.txt`         | `false`    | Enable `.txt` report output.                                         |
-| `-output.json`        | `false`    | Enable `.json` report output.                                        |
-| `-show.folders`       | `true`     | Show per-folder breakdown table in summary.                          |
-| `-purge-ids`          | `false`    | Enable interactive purging of duplicate IDs (local files only).      |
-| `-purge-rows`         | `false`    | Enable interactive purging of duplicate rows (local files only).     |
-| `-output`             | `"txt"`    | Output format for headless mode (`txt` or `json`).                   |
+### Advanced analysis
+
+Advanced analysis extends the read-only side of the tool with search targets,
+custom duplicate hashing, schema discovery, and derived cleanup artifacts. The
+recommended way to run it is with an explicit app config passed through
+`--app-config`.
+
+```sh
+./data-refinery \
+  --app-config examples/test_full_advanced.json \
+  -headless
+```
+
+This example config enables search, selective duplicate hashing, schema
+discovery, and a derived deletion output without mutating the source dataset:
+
+```json
+{
+  "path": "./test_data",
+  "key": "id",
+  "logPath": "logs",
+  "advanced": {
+    "searchTargets": [
+      {
+        "name": "customer_match",
+        "type": "direct",
+        "path": "customer_id",
+        "targetValues": ["cust-123"]
+      }
+    ],
+    "hashingStrategy": {
+      "mode": "selective",
+      "includeKeys": ["id", "customer_id"],
+      "algorithm": "fnv",
+      "normalize": true
+    },
+    "deletionRules": [
+      {
+        "searchTarget": "customer_match",
+        "action": "delete_matches",
+        "outputPath": "logs/derived/test-full-pruned.jsonl"
+      }
+    ]
+  }
+}
+```
+
+### Analysis outputs
+
+Analysis always prints a report to stdout, and it can also write files under
+`logPath`. The exact file set depends on which features you enable for the
+run.
+
+- Data Refinery writes `analysis_summary_*.txt`,
+  `analysis_details_*.txt`, and `analysis_report_*.json` when you enable the
+  matching report outputs.
+- Data Refinery writes `search_results_*.json` and
+  `search_target_<name>_*.json` when advanced search is enabled.
+- Data Refinery writes `schema_report_*.json`, `schema_report_*.csv`, or
+  `schema_report_*.yaml` when schema discovery is enabled.
+- Data Refinery writes `deletion_stats_*.json`, `deletion_summary_*.txt`, and
+  any configured deletion-rule output paths when derived cleanup artifacts are
+  enabled.
+
+### Local purge
+
+Local purge is the one mutation path that lives inside the analysis experience.
+It lets you review duplicate IDs or duplicate rows in the TUI and then remove
+the selected records from local files.
+
+```sh
+./data-refinery -path ./test_data -purge-ids
+```
+
+Local purge is not available for GCS inputs. It is treated as a guarded
+mutation workflow, so the safety rules in a later section apply to it.
+
+## Rewrite workflow
+
+Use rewrite when the dataset is already scoped and you know which rows or
+values need to change. Rewrite is CLI-only today and is designed for
+line-oriented JSON, NDJSON, and JSONL jobs where you want a preview before an
+apply.
+
+### What rewrite can change
+
+Rewrite focuses on a small set of predictable cleanup operations. You can
+combine them with state and ID filters to keep the blast radius narrow.
+
+- Rewrite can delete whole rows when a top-level key matches a target list.
+- Rewrite can remove matching entries from a nested array inside each record.
+- Rewrite can update a value recursively wherever a key appears in a row.
+- Rewrite can read target values from a CSV file when the inline list would be
+  too long to manage on the command line.
+
+### Rewrite quick examples
+
+These examples cover the most common rewrite jobs. Start with `preview`, then
+switch to `apply` once the summary matches your expectation.
+
+Preview a reusable cleanup config:
+
+```sh
+./data-refinery rewrite -config examples/rewrite-delete-config.json
+```
+
+Apply a reusable update config with backups:
+
+```sh
+./data-refinery rewrite -config examples/rewrite-update-config.json
+```
+
+Run a one-off preview directly from flags:
+
+```sh
+./data-refinery rewrite \
+  -path gs://example-bucket/orders \
+  -top-level-key status \
+  -top-level-vals archived,cancelled \
+  -mode preview
+```
+
+Use a CSV file as the target list source:
+
+```sh
+./data-refinery rewrite \
+  -path ./test_data \
+  -top-level-key customer_id \
+  -top-level-vals ./ids.csv \
+  -mode preview
+```
+
+The CSV reader expects a header row and one value per later row.
+
+### Portable rewrite config
+
+Rewrite configs are flat JSON job definitions that you pass with `-config`.
+Local relative paths in `paths`, `logPath`, `backupDir`, and
+`approvedOutputRoot` resolve from the rewrite config file directory.
+
+```json
+{
+  "paths": [
+    "../test_data/test2.json",
+    "../test_data/search_test2.json"
+  ],
+  "workers": 4,
+  "logPath": "../logs",
+  "approvedOutputRoot": "../workspace-output",
+  "mode": "preview",
+  "topLevelKey": "customer_id",
+  "topLevelValues": ["cust-456"]
+}
+```
+
+Rewrite starts from the base app config, overlays the portable rewrite config
+if you pass one, then applies any rewrite flags you set on the command line.
+
+## Mutation safety model
+
+Data Refinery now enforces extra checks around mutation workflows so that local
+write targets and config trust are explicit. These checks do not affect normal
+read-only analysis.
+
+- Guarded mutation workflows include `rewrite -mode apply`, local purge inside
+  the TUI, and analysis runs that write deletion-rule output files.
+- If a guarded workflow picks up the base app config from implicit discovery,
+  Data Refinery requires `--app-config`, `--allow-implicit-config`, or
+  `--yes-i-know-what-im-doing` before it proceeds.
+- Local write targets for guarded workflows must stay under
+  `--approved-output-root` or `approvedOutputRoot`. If you do not set one,
+  Data Refinery uses the current working directory as the default boundary.
+- GCS rewrite targets are still supported, but the local log, backup, and
+  artifact paths for the same run must satisfy the approved-root rule unless
+  you intentionally bypass it.
+
+> **Warning:** `--yes-i-know-what-im-doing` disables both the implicit-config
+> guard and the approved-output-root guard. Use it only when you understand why
+> the default safety model is blocking the run.
 
 ## Configuration
 
-On first run, or when options are changed in the TUI, a configuration file is created at `config/config.json`. The application uses the following priority for settings:
+Data Refinery uses one base app config model for analysis and shared runtime
+settings, then adds a separate portable config format for rewrite jobs. The
+base model is where worker counts, log paths, and advanced analysis settings
+live.
 
-1. **CLI Flags:** Always have the highest priority and will override any other settings.
-2. **Config File:** Values from `config/config.json` are loaded on startup.
-3. **Defaults:** Hard-coded default values are used if no other setting is provided.
+### Base app config
 
-## Core Concepts
+The base app config can come from defaults, environment variables, an explicit
+`--app-config` file, or the first implicit config file that exists in the
+supported search path. CLI flags always override loaded values for the current
+run.
 
-### Validator vs. Analyser
+The load order is:
 
-* **Validator Mode:** A high-speed, read-only mode designed for data profiling. It streams through all files to answer one question: "Does this key exist, and how many times?". It performs no duplicate tracking and is significantly faster than a full analysis. This is the ideal first step to ensure your data schema is correct.
+1. Built-in defaults.
+2. Environment variables such as `DATA_REFINERY_PATH`,
+   `DATA_REFINERY_KEY`, `DATA_REFINERY_WORKERS`,
+   `DATA_REFINERY_LOG_PATH`, `DATA_REFINERY_CHECK_KEY`, and
+   `DATA_REFINERY_CHECK_ROW`.
+3. An explicit `--app-config <file>` path, or the first implicit match from
+   `config/config.json`, `config.json`, `data-refinery.json`,
+   `~/.data-refinery.json`, or `/etc/data-refinery/config.json`.
+4. Command-line flags for the current invocation.
 
-* **Analyser Mode:** The deep-dive mode. It performs the same initial checks as the validator but additionally stores the locations of every key and a hash of every row in memory to find duplicates. This is more memory-intensive and is intended for finding specific duplicate entries after the data has been profiled.
+Using `--app-config` is the clearest way to keep a run self-contained and
+auditable, especially for guarded mutation workflows.
 
-### Intelligent Session Management: Continue, Restart, and New
+### Important flags
 
-The TUI provides robust session management to handle interruptions and different analysis workflows:
+These flags are the ones most people need once they move beyond the first
+quick start.
 
-* **Continue (`c`):** If you cancel a job (`ctrl+c`), the application preserves the entire state of the analyser, including all partial results and the elapsed time. From the report screen, pressing `(c)` will seamlessly resume the analysis only on the remaining, unprocessed files. The elapsed time will continue from where it left off, giving you an accurate measure of the total time spent.
+| Scope | Flag | What it does |
+| --- | --- | --- |
+| Analysis and rewrite | `--app-config` | Loads a specific base app config file instead of relying on implicit config discovery. |
+| Analysis and rewrite | `--approved-output-root` | Sets the local root that guarded mutation writes must stay under. |
+| Analysis and rewrite | `--allow-implicit-config` | Opts into using an implicitly discovered app config for guarded mutation workflows. |
+| Analysis and rewrite | `--yes-i-know-what-im-doing` | Bypasses the implicit-config and approved-output-root safety checks. |
+| Analysis | `-headless` | Runs analysis without the TUI and prints the report to stdout. |
+| Analysis | `-validate` | Runs a key validation pass instead of a full analysis. |
+| Analysis | `-output.txt` and `-output.json` | Saves text or JSON report files under `logPath`. |
+| Rewrite | `-config` | Loads a portable rewrite job definition. |
+| Rewrite | `-mode preview` or `-mode apply` | Chooses whether the run only reports changes or writes them. |
+| Rewrite | `-backup-dir` | Sets the local backup location used for apply-mode runs. |
 
-    ![Cancelled Task Report with Continue option](assets/cancelled_task.png)
+## Repository guides
 
-* **Restart (`r`):** This option discards any partial progress and runs the *exact same job* again from the beginning, using the same paths and key. The timer is reset to zero. This is useful if you want a clean run without changing any parameters.
+The root README is the fastest path into the project, but the repository also
+includes focused guides for common jobs and deeper operational context.
 
-* **New Job (`n`):** This option provides a completely clean slate. It clears the previously used paths and key, allowing you to define a brand new analysis or validation run from scratch.
+- [examples/README.md](examples/README.md) helps you choose the right example
+  config or workflow file for a specific job.
+- [examples/ADVANCED_FEATURES.md](examples/ADVANCED_FEATURES.md) explains the
+  advanced analysis model in more depth, including search targets and schema
+  discovery.
+- [examples/REWRITE_WORKFLOWS.md](examples/REWRITE_WORKFLOWS.md) focuses on
+  preview-first rewrite jobs and reusable portable configs.
+- [data-refinery-threat-model.md](data-refinery-threat-model.md) documents the
+  security model and trust boundaries for the current codebase.
+- [security_best_practices_report.md](security_best_practices_report.md)
+  records the latest security review findings and remediations.
 
----
+## Development
 
-### Purging Duplicates
+The repository is a standard Go module with `mise` support for tool
+installation. These are the baseline commands to run before you push a change.
 
-When a full analysis on local files finds duplicates, you can press `(p)` to enter the interactive purge workflow. For each set of duplicates, you will be prompted to select the one record you wish to keep. All other records in that set will be moved to a `deleted_records` directory in the current working directory with comprehensive backup and transaction management, and the original file will be overwritten.
+```sh
+go test ./...
+golangci-lint fmt ./...
+golangci-lint run ./...
+```
 
-The purging system includes:
+If the tools are missing in your shell, run `mise install` first.
 
-- **Transaction Safety**: All operations are atomic with rollback capability
-- **Comprehensive Backup**: Deleted records are stored with metadata for recovery
-- **Error Handling**: Graceful handling of malformed JSON and file access errors
-- **Validation**: Optional integrity validation of processed files
-- **Transaction Logging**: Full audit trail of all purge operations
+## Next steps
 
-## Future Development
+If you are new to the project, this sequence gives you the shortest route from
+orientation to a realistic cleanup workflow.
 
-This tool is under active development. Features on the roadmap include:
-
-* **GCS Purge Functionality:** Implement a mechanism to purge duplicates from GCS files (for example, download, purge, and re-upload or overwrite).
-* **TUI Polish:** Minor improvements to formatting and layout for even clearer presentation.
-* **Performance Optimisation:** Further profiling of goroutine usage for file and row processing to maximise efficiency.
-* **Test Coverage:** Introduction of a comprehensive suite of unit and integration tests to improve stability and encourage community contributions.
+1. Run `./data-refinery -validate -path ./test_data -key id`.
+2. Run `./data-refinery --app-config examples/test_full_advanced.json -headless`.
+3. Read [examples/README.md](examples/README.md) and pick the next example that
+   matches your dataset.
+4. Run `./data-refinery rewrite -config examples/rewrite-delete-config.json` in
+   preview mode before you attempt an apply.
 
 ## License
 
-This project is licensed under the MIT License.
+Data Refinery is licensed under the MIT License. See
+[LICENSE](LICENSE) for the full text.

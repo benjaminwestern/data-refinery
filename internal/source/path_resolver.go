@@ -3,6 +3,7 @@ package source
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -29,6 +30,45 @@ type GCSPathInfo struct {
 	Directory  string
 	FileName   string
 	Extension  string
+}
+
+// BuildContainedGCSLocalPath converts a GCS object path into a local path under
+// the provided root while rejecting traversal segments.
+func BuildContainedGCSLocalPath(root, bucket, objectName string) (string, error) {
+	if bucket == "" {
+		return "", fmt.Errorf("bucket cannot be empty")
+	}
+
+	segments, err := sanitizeGCSObjectSegments(objectName)
+	if err != nil {
+		return "", err
+	}
+
+	parts := append([]string{"gcs", bucket}, segments...)
+	return joinContainedPath(root, parts...)
+}
+
+// BuildContainedLocalPath converts a local source path into a contained backup
+// path rooted at the provided directory.
+func BuildContainedLocalPath(root, originalPath string) (string, error) {
+	absPath, err := filepath.Abs(originalPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to get absolute path: %w", err)
+	}
+
+	volume := filepath.VolumeName(absPath)
+	withoutVolume := strings.TrimPrefix(absPath, volume)
+	trimmed := strings.TrimPrefix(withoutVolume, string(os.PathSeparator))
+
+	parts := []string{"local"}
+	if volume != "" {
+		parts = append(parts, strings.TrimSuffix(volume, ":"))
+	}
+	if trimmed != "" {
+		parts = append(parts, strings.Split(trimmed, string(os.PathSeparator))...)
+	}
+
+	return joinContainedPath(root, parts...)
 }
 
 // ParseGCSPath parses a GCS path into its components
@@ -133,30 +173,12 @@ func (pr *PathResolver) createGCSBackupPath(originalPath, backupDir string) (str
 		return "", fmt.Errorf("failed to parse GCS path: %w", err)
 	}
 
-	// Create local backup structure preserving GCS structure
-	backupPath := filepath.Join(backupDir, "gcs", pathInfo.Bucket, pathInfo.ObjectName)
-
-	return backupPath, nil
+	return BuildContainedGCSLocalPath(backupDir, pathInfo.Bucket, pathInfo.ObjectName)
 }
 
 // createLocalBackupPath creates a backup path for local files
 func (pr *PathResolver) createLocalBackupPath(originalPath, backupDir string) (string, error) {
-	// Get absolute path
-	absPath, err := filepath.Abs(originalPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to get absolute path: %w", err)
-	}
-
-	// Create backup structure preserving directory structure
-	relPath, err := filepath.Rel(pr.basePath, absPath)
-	if err != nil {
-		// If we can't get relative path, use the full path structure
-		relPath = strings.TrimPrefix(absPath, "/")
-	}
-
-	backupPath := filepath.Join(backupDir, "local", relPath)
-
-	return backupPath, nil
+	return BuildContainedLocalPath(backupDir, originalPath)
 }
 
 // PathMapping represents a mapping between original and processed paths
@@ -319,4 +341,56 @@ func (pr *PathResolver) CombinePaths(base, additional string) string {
 	}
 
 	return filepath.Join(base, additional)
+}
+
+func sanitizeGCSObjectSegments(objectName string) ([]string, error) {
+	trimmed := strings.TrimPrefix(objectName, "/")
+	if trimmed == "" {
+		return nil, fmt.Errorf("object name cannot be empty")
+	}
+
+	rawSegments := strings.Split(trimmed, "/")
+	segments := make([]string, 0, len(rawSegments))
+	for _, segment := range rawSegments {
+		if segment == "" {
+			return nil, fmt.Errorf("object name %q contains empty path segments", objectName)
+		}
+		if segment == "." || segment == ".." {
+			return nil, fmt.Errorf("object name %q contains forbidden path segment %q", objectName, segment)
+		}
+		if strings.Contains(segment, `\`) {
+			return nil, fmt.Errorf("object name %q contains forbidden path separator %q", objectName, `\`)
+		}
+		segments = append(segments, segment)
+	}
+
+	return segments, nil
+}
+
+func joinContainedPath(root string, parts ...string) (string, error) {
+	if root == "" {
+		return "", fmt.Errorf("root path cannot be empty")
+	}
+
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve root path: %w", err)
+	}
+
+	joinedParts := append([]string{absRoot}, parts...)
+	candidate := filepath.Join(joinedParts...)
+	absCandidate, err := filepath.Abs(candidate)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve candidate path: %w", err)
+	}
+
+	rel, err := filepath.Rel(absRoot, absCandidate)
+	if err != nil {
+		return "", fmt.Errorf("failed to compare candidate path to root: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("resolved path %q escapes root %q", absCandidate, absRoot)
+	}
+
+	return absCandidate, nil
 }

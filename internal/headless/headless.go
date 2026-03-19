@@ -6,14 +6,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/analyser"
-	"github.com/benjaminwestern/dupe-analyser/internal/config"
-	"github.com/benjaminwestern/dupe-analyser/internal/output"
-	"github.com/benjaminwestern/dupe-analyser/internal/report"
-	"github.com/benjaminwestern/dupe-analyser/internal/source"
+	"github.com/benjaminwestern/data-refinery/internal/analyser"
+	"github.com/benjaminwestern/data-refinery/internal/config"
+	"github.com/benjaminwestern/data-refinery/internal/output"
+	"github.com/benjaminwestern/data-refinery/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/source"
 )
 
-// Config holds the settings required for a headless run.
+// Config captures the inputs required for a non-interactive analysis run.
 type Config struct {
 	AppConfig           *config.Config
 	Paths               string
@@ -29,7 +29,7 @@ type Config struct {
 	EnableJsonOutput    bool
 }
 
-// Run executes the full analysis in headless (non-interactive) mode.
+// Run executes an analysis run without the TUI and writes results to stdout.
 func Run(ctx context.Context, cfg *Config) {
 	if cfg.ValidateOnly {
 		fmt.Println("Running in Key Validation Mode...")

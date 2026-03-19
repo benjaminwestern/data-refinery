@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/config"
-	"github.com/benjaminwestern/dupe-analyser/internal/deletion"
-	"github.com/benjaminwestern/dupe-analyser/internal/search"
-	"github.com/benjaminwestern/dupe-analyser/internal/source"
+	"github.com/benjaminwestern/data-refinery/internal/config"
+	"github.com/benjaminwestern/data-refinery/internal/deletion"
+	"github.com/benjaminwestern/data-refinery/internal/search"
+	"github.com/benjaminwestern/data-refinery/internal/source"
 )
 
 // mockInputSource implements source.InputSource for testing

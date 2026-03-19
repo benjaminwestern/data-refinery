@@ -1,6 +1,6 @@
 {
   "path": "./test_data",
-  "key": "id", 
+  "key": "id",
   "workers": 4,
   "logPath": "logs",
   "checkKey": true,
@@ -11,22 +11,51 @@
   "advanced": {
     "searchTargets": [
       {
-        "name": "customer_search",
+        "name": "customer_match",
         "type": "direct",
         "path": "customer_id",
         "targetValues": ["cust-123"],
+        "caseSensitive": false
+      },
+      {
+        "name": "line_item_match",
+        "type": "nested_array",
+        "path": "line_items[*].item_id",
+        "targetValues": ["li-001"],
         "caseSensitive": false
       }
     ],
     "hashingStrategy": {
       "mode": "selective",
-      "includeKeys": ["id", "customer_id"]
+      "includeKeys": ["id", "customer_id"],
+      "algorithm": "fnv",
+      "normalize": true
     },
+    "deletionRules": [
+      {
+        "searchTarget": "line_item_match",
+        "action": "delete_matches",
+        "outputPath": "logs/derived/test-full-pruned.jsonl"
+      }
+    ],
     "schemaDiscovery": {
       "enabled": true,
       "samplePercent": 0.1,
       "maxDepth": 3,
-      "maxSamples": 100
+      "maxSamples": 100,
+      "outputFormats": ["json"],
+      "groupByFolder": false
+    },
+    "backup": {
+      "enabled": false,
+      "backupDir": "backups",
+      "retentionDays": 7,
+      "compression": false
+    },
+    "output": {
+      "formats": ["json"],
+      "destination": "output",
+      "compression": false
     }
   }
 }

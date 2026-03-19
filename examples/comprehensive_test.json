@@ -11,21 +11,21 @@
   "advanced": {
     "searchTargets": [
       {
-        "name": "customer_search",
+        "name": "customer_match",
         "type": "direct",
         "path": "customer_id",
         "targetValues": ["cust-123"],
         "caseSensitive": false
       },
       {
-        "name": "product_search",
+        "name": "product_match",
         "type": "nested_object",
         "path": "product.name",
         "targetValues": ["widget"],
-        "caseSensitive": true
+        "caseSensitive": false
       },
       {
-        "name": "line_item_search",
+        "name": "line_item_match",
         "type": "nested_array",
         "path": "line_items[*].item_id",
         "targetValues": ["li-001"],
@@ -34,7 +34,9 @@
     ],
     "hashingStrategy": {
       "mode": "selective",
-      "includeKeys": ["id", "customer_id", "product.name"]
+      "includeKeys": ["id", "customer_id", "product.name"],
+      "algorithm": "fnv",
+      "normalize": true
     },
     "schemaDiscovery": {
       "enabled": true,
@@ -46,9 +48,14 @@
     },
     "deletionRules": [
       {
-        "searchTarget": "customer_search",
+        "searchTarget": "customer_match",
         "action": "mark_for_deletion",
-        "outputPath": "marked_customers.jsonl"
+        "outputPath": "logs/review/marked-customers.jsonl"
+      },
+      {
+        "searchTarget": "line_item_match",
+        "action": "delete_matches",
+        "outputPath": "logs/derived/line-items-pruned.jsonl"
       }
     ]
   }

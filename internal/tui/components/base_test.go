@@ -4,10 +4,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/config"
-	"github.com/benjaminwestern/dupe-analyser/internal/memory"
-	"github.com/benjaminwestern/dupe-analyser/internal/state"
-	"github.com/charmbracelet/bubbletea"
+	"github.com/benjaminwestern/data-refinery/internal/config"
+	"github.com/benjaminwestern/data-refinery/internal/memory"
+	"github.com/benjaminwestern/data-refinery/internal/state"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // mockComponent implements Component interface for testing

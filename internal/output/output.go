@@ -12,12 +12,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/config"
-	"github.com/benjaminwestern/dupe-analyser/internal/deletion"
-	"github.com/benjaminwestern/dupe-analyser/internal/report"
-	"github.com/benjaminwestern/dupe-analyser/internal/schema"
-	"github.com/benjaminwestern/dupe-analyser/internal/search"
-	"github.com/benjaminwestern/dupe-analyser/internal/source"
+	"github.com/benjaminwestern/data-refinery/internal/config"
+	"github.com/benjaminwestern/data-refinery/internal/deletion"
+	"github.com/benjaminwestern/data-refinery/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/schema"
+	"github.com/benjaminwestern/data-refinery/internal/search"
+	"github.com/benjaminwestern/data-refinery/internal/source"
 )
 
 // OutputManager manages different types of output files and formats
@@ -52,12 +52,7 @@ func (om *OutputManager) CreateOutputFile(name, extension string) (string, error
 	filename := fmt.Sprintf("%s_%s.%s", name, om.timestamp, extension)
 	fullPath := filepath.Join(om.basePath, filename)
 
-	// Create directory if it doesn't exist
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
-		return "", fmt.Errorf("failed to create output directory: %w", err)
-	}
-
-	file, err := os.Create(fullPath)
+	file, err := createPrivateOutputFile(fullPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to create output file %s: %w", fullPath, err)
 	}
@@ -565,7 +560,7 @@ func (om *OutputManager) ProcessDataWithOutput(ctx context.Context, sources []so
 	fmt.Printf("Processing %d sources with output management...\n", len(sources))
 
 	// Create output directory
-	if err := os.MkdirAll(om.basePath, 0755); err != nil {
+	if err := os.MkdirAll(om.basePath, 0o700); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
@@ -670,11 +665,7 @@ func (om *OutputManager) WriteSearchResults(format config.OutputFormat) error {
 	fullPath := filepath.Join(om.basePath, format.Filename)
 
 	// Create directory if it doesn't exist
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
-		return fmt.Errorf("failed to create output directory: %w", err)
-	}
-
-	file, err := os.Create(fullPath)
+	file, err := createPrivateOutputFile(fullPath)
 	if err != nil {
 		return fmt.Errorf("failed to create output file %s: %w", fullPath, err)
 	}
@@ -711,11 +702,7 @@ func (om *OutputManager) WriteSchemaResults(format config.OutputFormat) error {
 	fullPath := filepath.Join(om.basePath, format.Filename)
 
 	// Create directory if it doesn't exist
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
-		return fmt.Errorf("failed to create output directory: %w", err)
-	}
-
-	file, err := os.Create(fullPath)
+	file, err := createPrivateOutputFile(fullPath)
 	if err != nil {
 		return fmt.Errorf("failed to create output file %s: %w", fullPath, err)
 	}
@@ -748,11 +735,7 @@ func (om *OutputManager) WriteDeletionResults(format config.OutputFormat) error 
 	fullPath := filepath.Join(om.basePath, format.Filename)
 
 	// Create directory if it doesn't exist
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
-		return fmt.Errorf("failed to create output directory: %w", err)
-	}
-
-	file, err := os.Create(fullPath)
+	file, err := createPrivateOutputFile(fullPath)
 	if err != nil {
 		return fmt.Errorf("failed to create output file %s: %w", fullPath, err)
 	}
@@ -794,7 +777,7 @@ func (om *OutputManager) FlushAll() error {
 
 // CreateDirectory creates a directory
 func (om *OutputManager) CreateDirectory(path string) error {
-	return os.MkdirAll(path, 0755)
+	return os.MkdirAll(path, 0o700)
 }
 
 // WriteMetadata writes metadata to a metadata file
@@ -819,6 +802,23 @@ func (om *OutputManager) GenerateReport() *Report {
 		DeletionStats: om.deletionResults,
 		GeneratedAt:   time.Now(),
 	}
+}
+
+func createPrivateOutputFile(fullPath string) (*os.File, error) {
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0o700); err != nil {
+		return nil, fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	file, err := os.OpenFile(fullPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := file.Chmod(0o600); err != nil {
+		file.Close()
+		return nil, fmt.Errorf("failed to set output file permissions: %w", err)
+	}
+
+	return file, nil
 }
 
 func (om *OutputManager) searchResultsCSV() string {

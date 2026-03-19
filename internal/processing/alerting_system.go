@@ -16,9 +16,11 @@ import (
 	"time"
 )
 
-type AlertingSeverity string
-type AlertingStatus string
-type NotificationChannel string
+type (
+	AlertingSeverity    string
+	AlertingStatus      string
+	NotificationChannel string
+)
 
 const (
 	AlertingSeverityInfo     AlertingSeverity = "info"

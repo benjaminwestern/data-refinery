@@ -1,10 +1,11 @@
 package hasher
 
 import (
+	"sync"
 	"testing"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/config"
-	"github.com/benjaminwestern/dupe-analyser/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/config"
+	"github.com/benjaminwestern/data-refinery/internal/report"
 )
 
 func TestNewSelectiveHasher(t *testing.T) {
@@ -19,9 +20,6 @@ func TestNewSelectiveHasher(t *testing.T) {
 	}
 	if hasher.strategy.Mode != "full_row" {
 		t.Errorf("Expected strategy mode 'full_row', got '%s'", hasher.strategy.Mode)
-	}
-	if hasher.hasher == nil {
-		t.Error("Expected hasher to be initialized")
 	}
 }
 
@@ -170,6 +168,57 @@ func TestSelectiveHasher_NormalizeForHashing(t *testing.T) {
 	normalizedArray := hasher.normalizeForHashing(arrayData)
 	if normalizedArray == nil {
 		t.Error("Expected normalized array to not be nil")
+	}
+}
+
+func TestSelectiveHasher_HashRowConcurrentStability(t *testing.T) {
+	strategy := config.HashingStrategy{
+		Mode:        "selective",
+		IncludeKeys: []string{"id", "name", "metadata"},
+	}
+	hasher := NewSelectiveHasher(strategy)
+
+	data := report.JSONData{
+		"id":   "123",
+		"name": "test",
+		"metadata": map[string]any{
+			"region": "apac",
+			"tags":   []any{"one", "two", "three"},
+		},
+		"ignored": "value",
+	}
+
+	expected := hasher.HashRow(data)
+	if expected == "" {
+		t.Fatal("Expected non-empty baseline hash")
+	}
+
+	const goroutines = 32
+	const iterations = 200
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	results := make(chan string, goroutines*iterations)
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for j := 0; j < iterations; j++ {
+				results <- hasher.HashRow(data)
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+	close(results)
+
+	for result := range results {
+		if result != expected {
+			t.Fatalf("expected stable concurrent hash %q, got %q", expected, result)
+		}
 	}
 }
 

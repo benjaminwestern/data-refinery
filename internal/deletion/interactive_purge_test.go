@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/backup"
-	"github.com/benjaminwestern/dupe-analyser/internal/errors"
+	"github.com/benjaminwestern/data-refinery/internal/backup"
+	"github.com/benjaminwestern/data-refinery/internal/errors"
 )
 
 func TestInteractivePurgeEngine_BasicFunctionality(t *testing.T) {
@@ -32,14 +32,14 @@ func TestInteractivePurgeEngine_BasicFunctionality(t *testing.T) {
 	err = os.WriteFile(testFile, []byte(fmt.Sprintf("%s\n", testData[0])+
 		fmt.Sprintf("%s\n", testData[1])+
 		fmt.Sprintf("%s\n", testData[2])+
-		fmt.Sprintf("%s\n", testData[3])), 0644)
+		fmt.Sprintf("%s\n", testData[3])), 0o644)
 	if err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
 	// Create backup directory
 	backupDir := filepath.Join(tempDir, "backup")
-	err = os.MkdirAll(backupDir, 0755)
+	err = os.MkdirAll(backupDir, 0o755)
 	if err != nil {
 		t.Fatalf("Failed to create backup directory: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestInteractivePurgeEngine_ErrorHandling(t *testing.T) {
 
 	// Create backup directory
 	backupDir := filepath.Join(tempDir, "backup")
-	err = os.MkdirAll(backupDir, 0755)
+	err = os.MkdirAll(backupDir, 0o755)
 	if err != nil {
 		t.Fatalf("Failed to create backup directory: %v", err)
 	}
@@ -217,14 +217,14 @@ func TestInteractivePurgeEngine_RollbackFunctionality(t *testing.T) {
 	err = os.WriteFile(testFile, []byte(fmt.Sprintf("%s\n", testData[0])+
 		fmt.Sprintf("%s\n", testData[1])+
 		fmt.Sprintf("%s\n", testData[2])+
-		fmt.Sprintf("%s\n", testData[3])), 0644)
+		fmt.Sprintf("%s\n", testData[3])), 0o644)
 	if err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
 	// Create backup directory
 	backupDir := filepath.Join(tempDir, "backup")
-	err = os.MkdirAll(backupDir, 0755)
+	err = os.MkdirAll(backupDir, 0o755)
 	if err != nil {
 		t.Fatalf("Failed to create backup directory: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestInteractivePurgeEngine_TransactionManagement(t *testing.T) {
 			fmt.Sprintf(`{"id": "%d2", "name": "Jane%d", "age": 25}`, i, i),
 		}
 
-		err = os.WriteFile(testFile, []byte(fmt.Sprintf("%s\n%s\n", testData[0], testData[1])), 0644)
+		err = os.WriteFile(testFile, []byte(fmt.Sprintf("%s\n%s\n", testData[0], testData[1])), 0o644)
 		if err != nil {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
@@ -316,7 +316,7 @@ func TestInteractivePurgeEngine_TransactionManagement(t *testing.T) {
 
 	// Create backup directory
 	backupDir := filepath.Join(tempDir, "backup")
-	err = os.MkdirAll(backupDir, 0755)
+	err = os.MkdirAll(backupDir, 0o755)
 	if err != nil {
 		t.Fatalf("Failed to create backup directory: %v", err)
 	}
@@ -424,7 +424,7 @@ func TestInteractivePurgeEngine_ConfigurationOptions(t *testing.T) {
 
 	// Create backup directory
 	backupDir := filepath.Join(tempDir, "backup")
-	err = os.MkdirAll(backupDir, 0755)
+	err = os.MkdirAll(backupDir, 0o755)
 	if err != nil {
 		t.Fatalf("Failed to create backup directory: %v", err)
 	}

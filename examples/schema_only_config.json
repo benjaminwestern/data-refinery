@@ -1,6 +1,6 @@
 {
-  "path": "/path/to/data",
-  "key": "id", 
+  "path": "/data/orders",
+  "key": "id",
   "workers": 4,
   "logPath": "logs",
   "checkKey": false,
@@ -13,7 +13,9 @@
   "advanced": {
     "searchTargets": [],
     "hashingStrategy": {
-      "mode": "full_row"
+      "mode": "full_row",
+      "algorithm": "fnv",
+      "normalize": true
     },
     "deletionRules": [],
     "schemaDiscovery": {
@@ -23,6 +25,17 @@
       "maxSamples": 100000,
       "outputFormats": ["json", "csv", "yaml"],
       "groupByFolder": true
+    },
+    "backup": {
+      "enabled": false,
+      "backupDir": "backups",
+      "retentionDays": 30,
+      "compression": false
+    },
+    "output": {
+      "formats": ["json", "csv"],
+      "destination": "output",
+      "compression": false
     }
   }
 }

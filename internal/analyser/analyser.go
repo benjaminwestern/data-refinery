@@ -1,4 +1,4 @@
-// internal/analyser/analyser.go
+// Package analyser coordinates analysis runs over discovered input sources.
 package analyser
 
 import (
@@ -6,24 +6,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"hash"
 	"hash/fnv"
 	"log"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/config"
-	"github.com/benjaminwestern/dupe-analyser/internal/deletion"
-	"github.com/benjaminwestern/dupe-analyser/internal/errors"
-	"github.com/benjaminwestern/dupe-analyser/internal/hasher"
-	"github.com/benjaminwestern/dupe-analyser/internal/memory"
-	"github.com/benjaminwestern/dupe-analyser/internal/processing"
-	"github.com/benjaminwestern/dupe-analyser/internal/report"
-	"github.com/benjaminwestern/dupe-analyser/internal/schema"
-	"github.com/benjaminwestern/dupe-analyser/internal/search"
-	"github.com/benjaminwestern/dupe-analyser/internal/source"
-	"github.com/benjaminwestern/dupe-analyser/internal/state"
+	"github.com/benjaminwestern/data-refinery/internal/config"
+	"github.com/benjaminwestern/data-refinery/internal/deletion"
+	"github.com/benjaminwestern/data-refinery/internal/errors"
+	"github.com/benjaminwestern/data-refinery/internal/hasher"
+	"github.com/benjaminwestern/data-refinery/internal/memory"
+	"github.com/benjaminwestern/data-refinery/internal/processing"
+	"github.com/benjaminwestern/data-refinery/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/schema"
+	"github.com/benjaminwestern/data-refinery/internal/search"
+	"github.com/benjaminwestern/data-refinery/internal/source"
+	"github.com/benjaminwestern/data-refinery/internal/state"
 )
 
 // Analyser holds the state and configuration for an analysis run.
@@ -179,7 +178,7 @@ func New(cfg *config.Config) (*Analyser, error) {
 	return a, nil
 }
 
-// validateConfig provides basic validation - matches the internal function for now
+// validateConfig provides basic validation and mirrors the internal checks for now.
 func validateConfig(cfg *config.Config) error {
 	if cfg.Workers < 1 {
 		return fmt.Errorf("workers must be at least 1")
@@ -196,7 +195,7 @@ func validateConfig(cfg *config.Config) error {
 	return nil
 }
 
-// handleRecoverableError processes errors through the advanced error recovery system
+// handleRecoverableError processes errors through the advanced error recovery system.
 func (a *Analyser) handleRecoverableError(ctx context.Context, err error, operation string) error {
 	if a.errorRecovery == nil {
 		return err
@@ -214,7 +213,7 @@ func (a *Analyser) handleRecoverableError(ctx context.Context, err error, operat
 	return err
 }
 
-// StreamingProcessor manages streaming patterns for large datasets
+// StreamingProcessor manages streaming patterns for large datasets.
 type StreamingProcessor struct {
 	batchSize       int
 	batchProcessor  func([]StreamingItem) error
@@ -225,14 +224,14 @@ type StreamingProcessor struct {
 	flushThreshold  int
 }
 
-// StreamingItem represents a single item in the streaming pipeline
+// StreamingItem represents a single item in the streaming pipeline.
 type StreamingItem struct {
 	Data       report.JSONData
 	Location   report.LocationInfo
 	LineNumber int
 }
 
-// NewStreamingProcessor creates a new streaming processor
+// NewStreamingProcessor creates a new streaming processor.
 func NewStreamingProcessor(batchSize int, memoryManager *memory.MemoryManager) *StreamingProcessor {
 	return &StreamingProcessor{
 		batchSize:       batchSize,
@@ -243,7 +242,7 @@ func NewStreamingProcessor(batchSize int, memoryManager *memory.MemoryManager) *
 	}
 }
 
-// AddItem adds an item to the streaming processor
+// AddItem adds an item to the streaming processor.
 func (sp *StreamingProcessor) AddItem(item StreamingItem) error {
 	sp.currentBatch = append(sp.currentBatch, item)
 
@@ -264,7 +263,7 @@ func (sp *StreamingProcessor) AddItem(item StreamingItem) error {
 	return nil
 }
 
-// Flush processes the current batch
+// Flush processes the current batch.
 func (sp *StreamingProcessor) Flush() error {
 	if len(sp.currentBatch) == 0 {
 		return nil
@@ -287,18 +286,22 @@ func (sp *StreamingProcessor) Flush() error {
 	return nil
 }
 
-// Close finalizes the streaming processor
+// Close finalizes the streaming processor.
 func (sp *StreamingProcessor) Close() error {
 	return sp.Flush()
 }
 
-// executeWithCircuitBreaker executes an operation with circuit breaker protection
+// executeWithCircuitBreaker executes an operation with circuit breaker protection.
 func (a *Analyser) executeWithCircuitBreaker(ctx context.Context, operation string, fn func() error) error {
 	if a.circuitBreaker == nil {
 		return fn()
 	}
 
-	return a.circuitBreaker.Execute(ctx, fn)
+	if err := a.circuitBreaker.Execute(ctx, fn); err != nil {
+		return fmt.Errorf("%s failed: %w", operation, err)
+	}
+
+	return nil
 }
 
 // GetUnprocessedSources filters a list of all sources against the ones that have
@@ -327,7 +330,9 @@ func (a *Analyser) Run(ctx context.Context, sources []source.InputSource) *repor
 
 	// Update state to running if state manager is available
 	if a.stateManager != nil {
-		a.stateManager.UpdateStatus(state.StatusRunning)
+		if err := a.stateManager.UpdateStatus(state.StatusRunning); err != nil {
+			log.Printf("Failed to update analysis state to %q: %v", state.StatusRunning, err)
+		}
 	}
 
 	var workerWg sync.WaitGroup
@@ -358,7 +363,9 @@ func (a *Analyser) Run(ctx context.Context, sources []source.InputSource) *repor
 		if ctx.Err() != nil {
 			status = state.StatusCancelled
 		}
-		a.stateManager.UpdateStatus(status)
+		if err := a.stateManager.UpdateStatus(status); err != nil {
+			log.Printf("Failed to update analysis state to %q: %v", status, err)
+		}
 	}
 
 	return a.generateReport(sources, ctx.Err() != nil, a.config.ValidateOnly)
@@ -383,7 +390,11 @@ func (a *Analyser) processSource(ctx context.Context, src source.InputSource) {
 		log.Printf("Error opening source %q: %v\n", src.Path(), err)
 		return
 	}
-	defer reader.Close()
+	defer func() {
+		if closeErr := reader.Close(); closeErr != nil {
+			log.Printf("Error closing source %q: %v\n", src.Path(), closeErr)
+		}
+	}()
 
 	// Check memory pressure before processing
 	if a.memoryManager != nil {
@@ -400,11 +411,16 @@ func (a *Analyser) processSource(ctx context.Context, src source.InputSource) {
 
 	// Adjust buffer size based on memory configuration
 	bufferSize := 4 * 1024 * 1024 // 4MB default
+	maxCapacity := 4 * 1024 * 1024
 	if a.config.Performance != nil && a.config.Performance.BufferSize > 0 {
 		bufferSize = a.config.Performance.BufferSize
 	}
-
-	const maxCapacity = 4 * 1024 * 1024
+	if a.config.Performance != nil && a.config.Performance.MaxBufferSize > 0 {
+		maxCapacity = a.config.Performance.MaxBufferSize
+	}
+	if maxCapacity < bufferSize {
+		maxCapacity = bufferSize
+	}
 	buf := make([]byte, bufferSize)
 	scanner.Buffer(buf, maxCapacity)
 
@@ -496,7 +512,7 @@ func (a *Analyser) generateReport(sources []source.InputSource, wasCancelled, is
 	}
 }
 
-// GetSearchResults returns the search results if search engine is configured
+// GetSearchResults returns the search results if the search engine is configured.
 func (a *Analyser) GetSearchResults() *search.SearchResults {
 	if a.searchEngine == nil {
 		return nil
@@ -505,7 +521,7 @@ func (a *Analyser) GetSearchResults() *search.SearchResults {
 	return &results
 }
 
-// GetSchemaReport returns the schema report if schema analyzer is configured
+// GetSchemaReport returns the schema report if the schema analyzer is configured.
 func (a *Analyser) GetSchemaReport() *schema.SchemaReport {
 	if a.schemaAnalyzer == nil {
 		return nil
@@ -513,7 +529,7 @@ func (a *Analyser) GetSchemaReport() *schema.SchemaReport {
 	return a.schemaAnalyzer.GenerateReport()
 }
 
-// GetDeletionStats returns the deletion statistics if deletion engine is configured
+// GetDeletionStats returns the deletion statistics if the deletion engine is configured.
 func (a *Analyser) GetDeletionStats() *deletion.DeletionStats {
 	if a.deletionEngine == nil {
 		return nil
@@ -522,7 +538,7 @@ func (a *Analyser) GetDeletionStats() *deletion.DeletionStats {
 	return &stats
 }
 
-// Close closes all advanced components and saves final state
+// Close closes all advanced components and saves the final state.
 func (a *Analyser) Close() error {
 	// Close processing components
 	if a.rowProcessor != nil {
@@ -540,25 +556,27 @@ func (a *Analyser) Close() error {
 
 	// Close deletion engine
 	if a.deletionEngine != nil {
-		return a.deletionEngine.Close()
+		if err := a.deletionEngine.Close(); err != nil {
+			return fmt.Errorf("close deletion engine: %w", err)
+		}
 	}
 
 	return nil
 }
 
-// GetStateManager returns the state manager for external use
+// GetStateManager returns the state manager for external use.
 func (a *Analyser) GetStateManager() *state.StateManager {
 	return a.stateManager
 }
 
-// initializeStateManagement initializes the state management system
+// initializeStateManagement initializes the state management system.
 func (a *Analyser) initializeStateManagement(ctx context.Context) error {
 	if a.stateManager != nil {
 		return nil // Already initialized
 	}
 
 	stateDir := a.config.GetStateDir()
-	sessionID := fmt.Sprintf("analyser_%d", time.Now().Unix())
+	sessionID := fmt.Sprintf("data_refinery_%d", time.Now().Unix())
 
 	// Create state manager with configuration
 	options := []state.StateManagerOption{
@@ -584,129 +602,4 @@ func (a *Analyser) initializeStateManagement(ctx context.Context) error {
 	sm.StartAutoSave()
 
 	return nil
-}
-
-// RowProcessingTask represents a task for processing a single row
-type RowProcessingTask struct {
-	Data      report.JSONData
-	Location  report.LocationInfo
-	RowHasher hash.Hash64
-}
-
-// processSourceWithWorkerPool demonstrates how to use WorkerPool for row-level parallelism
-// This method shows how to integrate the WorkerPool pattern into the analyser
-func (a *Analyser) processSourceWithWorkerPool(ctx context.Context, src source.InputSource) {
-	a.CurrentFolder.Store(src.Dir())
-	reader, err := src.Open(ctx)
-	if err != nil {
-		log.Printf("Error opening source %q: %v\n", src.Path(), err)
-		return
-	}
-	defer reader.Close()
-
-	// Create a WorkerPool for row processing
-	processor := processing.TaskProcessorFunc[RowProcessingTask](func(ctx context.Context, task RowProcessingTask) (interface{}, error) {
-		if a.rowProcessor != nil {
-			return nil, a.rowProcessor.ProcessRow(task.Data, task.Location, task.RowHasher)
-		}
-		return nil, nil
-	})
-
-	// Configure worker pool with reasonable defaults
-	opts := processing.WorkerPoolOptions{
-		Workers:    a.config.Workers,     // Use the config workers
-		BufferSize: a.config.Workers * 4, // Buffer to handle burst processing
-	}
-
-	workerPool := processing.NewWorkerPool(processor, opts)
-	workerPool.Start()
-	defer workerPool.Stop()
-
-	// Process rows and collect them in batches for efficient processing
-	scanner := bufio.NewScanner(reader)
-	const maxCapacity = 4 * 1024 * 1024
-	buf := make([]byte, maxCapacity)
-	scanner.Buffer(buf, maxCapacity)
-
-	var tasks []RowProcessingTask
-	lineNumber := 0
-	batchSize := 100 // Process rows in batches
-
-	for scanner.Scan() {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		lineNumber++
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
-		}
-
-		var data report.JSONData
-		if err := json.Unmarshal(line, &data); err != nil {
-			log.Printf("Error decoding JSON on line %d in source %q: %v\n", lineNumber, src.Path(), err)
-			continue
-		}
-
-		location := report.LocationInfo{
-			FilePath:   src.Path(),
-			LineNumber: lineNumber,
-		}
-
-		// Create a separate hasher for each task to avoid race conditions
-		rowHasher := fnv.New64a()
-
-		tasks = append(tasks, RowProcessingTask{
-			Data:      data,
-			Location:  location,
-			RowHasher: rowHasher,
-		})
-
-		// Process in batches to avoid memory buildup
-		if len(tasks) >= batchSize {
-			results := workerPool.ProcessBatch(tasks)
-
-			// Handle any errors in the batch
-			for _, result := range results {
-				if result.Error != nil {
-					log.Printf("Error processing row: %v\n", result.Error)
-				}
-			}
-
-			// Update row count
-			a.TotalRows.Add(int64(len(tasks)))
-
-			// Clear the batch
-			tasks = tasks[:0]
-		}
-	}
-
-	// Process any remaining tasks
-	if len(tasks) > 0 {
-		results := workerPool.ProcessBatch(tasks)
-
-		// Handle any errors in the final batch
-		for _, result := range results {
-			if result.Error != nil {
-				log.Printf("Error processing row: %v\n", result.Error)
-			}
-		}
-
-		// Update row count
-		a.TotalRows.Add(int64(len(tasks)))
-	}
-
-	if err := scanner.Err(); err != nil {
-		log.Printf("Scanner error in source %q: %v\n", src.Path(), err)
-		return
-	}
-
-	// Update processed file tracking
-	a.processedPathsMutex.Lock()
-	a.processedPaths[src.Path()] = true
-	a.processedPathsMutex.Unlock()
-	a.ProcessedFiles.Add(1)
 }

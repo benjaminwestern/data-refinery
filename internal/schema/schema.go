@@ -13,8 +13,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/config"
-	"github.com/benjaminwestern/dupe-analyser/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/config"
+	"github.com/benjaminwestern/data-refinery/internal/report"
 	"gopkg.in/yaml.v3"
 )
 
@@ -401,7 +401,7 @@ func (sa *SchemaAnalyzer) saveJSONReport(report *SchemaReport, filename string) 
 		return fmt.Errorf("failed to marshal JSON: %w", err)
 	}
 
-	return os.WriteFile(filename, data, 0644)
+	return os.WriteFile(filename, data, 0o644)
 }
 
 // saveCSVReport saves the report as CSV
@@ -484,5 +484,5 @@ func (sa *SchemaAnalyzer) saveYAMLReport(report *SchemaReport, filename string) 
 		return fmt.Errorf("failed to marshal YAML: %w", err)
 	}
 
-	return os.WriteFile(filename, data, 0644)
+	return os.WriteFile(filename, data, 0o644)
 }

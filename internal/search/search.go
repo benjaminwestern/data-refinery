@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/benjaminwestern/dupe-analyser/internal/config"
-	"github.com/benjaminwestern/dupe-analyser/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/config"
+	"github.com/benjaminwestern/data-refinery/internal/report"
 )
 
 // SearchEngine manages multiple search targets and their matchers
