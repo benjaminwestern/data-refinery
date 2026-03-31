@@ -1,0 +1,3 @@
+customer_id,first_name,last_name,email,mobile,postcode,status
+ingest-001,Alice,Ng,alice.ingest@example.com,0400000001,3000,active
+ingest-002,Ben,Hart,ben.ingest@example.com,0400000002,3001,inactive

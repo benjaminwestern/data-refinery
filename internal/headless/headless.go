@@ -19,6 +19,7 @@ type Config struct {
 	AppConfig           *config.Config
 	Paths               string
 	Key                 string
+	XMLRecordPath       string
 	Workers             int
 	LogPath             string
 	OutputFormat        string
@@ -44,7 +45,7 @@ func Run(ctx context.Context, cfg *Config) {
 		pathStrings[i] = strings.TrimSpace(p)
 	}
 
-	sources, err := source.DiscoverAll(ctx, pathStrings)
+	sources, err := source.DiscoverAllWithOptions(ctx, pathStrings, source.DefaultAnalysisDiscoveryOptions())
 	if err != nil {
 		fmt.Printf("Error discovering sources: %v\n", err)
 		return
@@ -58,6 +59,9 @@ func Run(ctx context.Context, cfg *Config) {
 	}
 	analyserConfig.Path = cfg.Paths
 	analyserConfig.Key = cfg.Key
+	if strings.TrimSpace(cfg.XMLRecordPath) != "" {
+		analyserConfig.XMLRecordPath = cfg.XMLRecordPath
+	}
 	analyserConfig.Workers = cfg.Workers
 	analyserConfig.LogPath = cfg.LogPath
 	analyserConfig.CheckKey = cfg.CheckKey

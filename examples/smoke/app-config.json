@@ -1,0 +1,21 @@
+{
+  "path": "./examples/smoke/analysis/customers.csv,./examples/smoke/analysis/customers.tsv,./examples/smoke/analysis/customers.xlsx,./examples/smoke/analysis/orders.json,./examples/smoke/analysis/events.jsonl,./examples/smoke/analysis/customers.xml",
+  "key": "id",
+  "xmlRecordPath": "customers.customer",
+  "workers": 2,
+  "logPath": ".tmp/smoke-cli/analysis",
+  "approvedOutputRoot": ".tmp/smoke-cli",
+  "checkKey": true,
+  "checkRow": true,
+  "showFolderBreakdown": true,
+  "enableTxtOutput": true,
+  "enableJsonOutput": true,
+  "advanced": {
+    "hashingStrategy": {
+      "mode": "selective",
+      "includeKeys": ["name", "channel"],
+      "algorithm": "fnv",
+      "normalize": true
+    }
+  }
+}

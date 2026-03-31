@@ -1,0 +1,22 @@
+<customers>
+  <customer status="active">
+    <id>smoke-xml-1</id>
+    <name>Iris</name>
+    <profile>
+      <segment>gold</segment>
+      <preferences>
+        <channel>email</channel>
+      </preferences>
+    </profile>
+  </customer>
+  <customer status="pending">
+    <id>smoke-dup-1</id>
+    <name>Jules</name>
+    <profile>
+      <segment>silver</segment>
+      <preferences>
+        <channel>sms</channel>
+      </preferences>
+    </profile>
+  </customer>
+</customers>

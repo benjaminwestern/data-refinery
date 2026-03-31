@@ -48,6 +48,54 @@ func DefaultJSONDiscoveryOptions() DiscoveryOptions {
 	}
 }
 
+// DefaultAnalysisDiscoveryOptions returns the discovery settings used by the
+// shared analysis reader layer. It keeps JSON-family support and adds the
+// currently supported structured tabular formats.
+func DefaultAnalysisDiscoveryOptions() DiscoveryOptions {
+	return DiscoveryOptions{
+		AllowedExtensions: []string{".csv", ".tsv", ".xlsx", ".xml", ".json", ".ndjson", ".jsonl"},
+		AllowedContentTypes: map[string]bool{
+			"text/csv":                  true,
+			"application/csv":           true,
+			"text/tab-separated-values": true,
+			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": true,
+			"application/xml":            true,
+			"text/xml":                   true,
+			"application/rss+xml":        true,
+			"application/atom+xml":       true,
+			"application/json":           true,
+			"application/x-ndjson":       true,
+			"application/json-seq":       true,
+			"application/jsonlines":      true,
+			"application/jsonlines+json": true,
+			"application/x-jsonlines":    true,
+		},
+		Description: "CSV, TSV, XLSX, XML, JSON, NDJSON, or JSONL",
+	}
+}
+
+// DefaultRewriteDiscoveryOptions returns the discovery settings used by rewrite
+// workflows. It preserves the existing JSON-family inputs and adds XML when an
+// explicit XML record path is supplied.
+func DefaultRewriteDiscoveryOptions() DiscoveryOptions {
+	return DiscoveryOptions{
+		AllowedExtensions: []string{".xml", ".json", ".ndjson", ".jsonl"},
+		AllowedContentTypes: map[string]bool{
+			"application/xml":            true,
+			"text/xml":                   true,
+			"application/rss+xml":        true,
+			"application/atom+xml":       true,
+			"application/json":           true,
+			"application/x-ndjson":       true,
+			"application/json-seq":       true,
+			"application/jsonlines":      true,
+			"application/jsonlines+json": true,
+			"application/x-jsonlines":    true,
+		},
+		Description: "XML, JSON, NDJSON, or JSONL",
+	}
+}
+
 // DiscoverAll resolves every supplied path and returns a de-duplicated list of
 // processable sources.
 func DiscoverAll(ctx context.Context, paths []string) ([]InputSource, error) {

@@ -14,6 +14,7 @@ type fileConfig struct {
 	Workers            int      `json:"workers"`
 	LogPath            string   `json:"logPath"`
 	ApprovedOutputRoot string   `json:"approvedOutputRoot"`
+	XMLRecordPath      string   `json:"xmlRecordPath"`
 	Mode               Mode     `json:"mode"`
 	BackupDir          string   `json:"backupDir"`
 	BufferSize         int      `json:"bufferSize"`
@@ -58,6 +59,7 @@ func LoadConfigFile(path string) (*Config, error) {
 		Workers:            raw.Workers,
 		LogPath:            resolveLocalPath(configDir, raw.LogPath),
 		ApprovedOutputRoot: resolveLocalPath(configDir, raw.ApprovedOutputRoot),
+		XMLRecordPath:      raw.XMLRecordPath,
 		Mode:               raw.Mode,
 		BackupDir:          resolveLocalPath(configDir, raw.BackupDir),
 		BufferSize:         raw.BufferSize,
@@ -98,6 +100,9 @@ func MergeConfig(base, override *Config) {
 	}
 	if override.ApprovedOutputRoot != "" {
 		base.ApprovedOutputRoot = override.ApprovedOutputRoot
+	}
+	if override.XMLRecordPath != "" {
+		base.XMLRecordPath = override.XMLRecordPath
 	}
 	if override.Mode != "" {
 		base.Mode = override.Mode

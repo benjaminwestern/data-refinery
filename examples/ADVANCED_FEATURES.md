@@ -5,6 +5,10 @@ need more than duplicate counts and key validation, such as targeted search,
 schema discovery, business-key dedupe rules, or derived cleanup artifacts that
 help you plan a later rewrite.
 
+The analysis engine can inspect `.csv`, `.tsv`, `.xlsx`, `.xml`, `.json`,
+`.ndjson`, and `.jsonl` inputs through the same workflow. For XML, set
+`xmlRecordPath` when repeated elements should be treated as logical records.
+
 ## How advanced analysis is loaded
 
 Advanced analysis lives inside the standard app config model. The recommended

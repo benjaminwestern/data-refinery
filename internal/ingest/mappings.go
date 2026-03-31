@@ -28,8 +28,8 @@ var supportedStandardFields = map[string]struct{}{
 var defaultNullValues = []string{"", "null", "NULL", "n/a", "N/A"}
 
 // MappingSet contains the normalized mapping rules used by the ingest
-// workflow. It accepts both the legacy py-file-ingestion format and the newer
-// Data Refinery structured format.
+// workflow. It accepts both the older filename-keyed mapping format and the
+// newer Data Refinery structured format.
 type MappingSet struct {
 	Defaults MappingDefaults `json:"defaults" yaml:"defaults"`
 	Files    []FileMapping   `json:"files" yaml:"files"`
@@ -59,6 +59,7 @@ type FileMapping struct {
 	DataSource                  string            `json:"dataSource" yaml:"dataSource"`
 	LegacyDataSource            string            `json:"data_source" yaml:"data_source"`
 	Sheet                       string            `json:"sheet" yaml:"sheet"`
+	XMLRecordPath               string            `json:"xmlRecordPath" yaml:"xmlRecordPath"`
 	SourceCreatedDateField      string            `json:"sourceCreatedDateField" yaml:"sourceCreatedDateField"`
 	SourceModifiedDateField     string            `json:"sourceModifiedDateField" yaml:"sourceModifiedDateField"`
 	IncludeUnmappedAsAttributes *bool             `json:"includeUnmappedAsAttributes" yaml:"includeUnmappedAsAttributes"`
@@ -81,6 +82,7 @@ type legacyFileMapping struct {
 	Attributes              map[string]string `json:"attributes" yaml:"attributes"`
 	DataSource              string            `json:"data_source" yaml:"data_source"`
 	Sheet                   string            `json:"sheet" yaml:"sheet"`
+	XMLRecordPath           string            `json:"xmlRecordPath" yaml:"xmlRecordPath"`
 	SourceCreatedDateField  string            `json:"sourceCreatedDateField" yaml:"sourceCreatedDateField"`
 	SourceModifiedDateField string            `json:"sourceModifiedDateField" yaml:"sourceModifiedDateField"`
 }
@@ -124,6 +126,7 @@ func LoadMappingSet(path string) (*MappingSet, error) {
 				Attributes:              cloneStringMap(legacy.Attributes),
 				LegacyDataSource:        legacy.DataSource,
 				Sheet:                   legacy.Sheet,
+				XMLRecordPath:           strings.TrimSpace(legacy.XMLRecordPath),
 				SourceCreatedDateField:  legacy.SourceCreatedDateField,
 				SourceModifiedDateField: legacy.SourceModifiedDateField,
 			})
@@ -225,6 +228,9 @@ func (fm *FileMapping) Validate() error {
 
 	if fm.Match.Format != "" && normalizeInputFormat(fm.Match.Format) == "" {
 		return fmt.Errorf("unsupported match format %q", fm.Match.Format)
+	}
+	if fm.Match.Format != "" && normalizeInputFormat(fm.Match.Format) != inputFormatXML && strings.TrimSpace(fm.XMLRecordPath) != "" {
+		return fmt.Errorf("xmlRecordPath is only valid for XML mappings")
 	}
 
 	return nil

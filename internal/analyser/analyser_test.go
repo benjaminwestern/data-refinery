@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/benjaminwestern/data-refinery/internal/deletion"
 	"github.com/benjaminwestern/data-refinery/internal/search"
 	"github.com/benjaminwestern/data-refinery/internal/source"
+	"github.com/xuri/excelize/v2"
 )
 
 // mockInputSource implements source.InputSource for testing
@@ -416,6 +418,360 @@ func TestAnalyserRun(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestAnalyserRunPreservesJSONFamilyBehaviour(t *testing.T) {
+	tests := []struct {
+		name string
+		ext  string
+	}{
+		{name: "json", ext: ".json"},
+		{name: "ndjson", ext: ".ndjson"},
+		{name: "jsonl", ext: ".jsonl"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "records"+tt.ext)
+			content := strings.Join([]string{
+				`{"id":"1","name":"alpha"}`,
+				`{"id":"2","name":"beta"}`,
+				`{"id":"1","name":"alpha"}`,
+			}, "\n") + "\n"
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatalf("failed to write fixture: %v", err)
+			}
+
+			sources, err := source.DiscoverAll(context.Background(), []string{path})
+			if err != nil {
+				t.Fatalf("failed to discover source: %v", err)
+			}
+
+			analyser, err := New(&config.Config{
+				Key:      "id",
+				Workers:  2,
+				CheckKey: true,
+				CheckRow: true,
+				LogPath:  filepath.Join(dir, "logs"),
+			})
+			if err != nil {
+				t.Fatalf("failed to create analyser: %v", err)
+			}
+
+			report := analyser.Run(context.Background(), sources)
+			if report == nil {
+				t.Fatal("expected report to be non-nil")
+			}
+
+			if report.Summary.TotalRowsProcessed != 3 {
+				t.Fatalf("expected 3 rows processed, got %d", report.Summary.TotalRowsProcessed)
+			}
+			if report.Summary.FilesProcessed != 1 {
+				t.Fatalf("expected 1 file processed, got %d", report.Summary.FilesProcessed)
+			}
+			if len(report.DuplicateIDs) != 1 {
+				t.Fatalf("expected 1 duplicate ID group, got %d", len(report.DuplicateIDs))
+			}
+			if len(report.DuplicateRows) != 1 {
+				t.Fatalf("expected 1 duplicate row group, got %d", len(report.DuplicateRows))
+			}
+
+			idLocations, ok := report.DuplicateIDs["1"]
+			if !ok {
+				t.Fatal("expected duplicate ID group for key 1")
+			}
+			if len(idLocations) != 2 {
+				t.Fatalf("expected duplicate ID group to have 2 locations, got %d", len(idLocations))
+			}
+
+			for _, locations := range report.DuplicateRows {
+				if len(locations) != 2 {
+					t.Fatalf("expected duplicate row group to have 2 locations, got %d", len(locations))
+				}
+			}
+		})
+	}
+}
+
+func TestAnalyserRunTabularContract(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		ext          string
+		write        func(t *testing.T, path string)
+		wantRows     int64
+		duplicateKey string
+		wantLine     []int
+	}{
+		{
+			name:         "csv",
+			ext:          ".csv",
+			duplicateKey: "1",
+			write: func(t *testing.T, path string) {
+				content := strings.Join([]string{
+					"id,name",
+					"1,Alice",
+					"2,Bob",
+					"1,Alpha",
+				}, "\n") + "\n"
+				if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+					t.Fatalf("failed to write CSV fixture: %v", err)
+				}
+			},
+			wantRows: 3,
+			wantLine: []int{2, 4},
+		},
+		{
+			name:         "tsv",
+			ext:          ".tsv",
+			duplicateKey: "3",
+			write: func(t *testing.T, path string) {
+				content := strings.Join([]string{
+					"id\tname",
+					"3\tCara",
+					"4\tDrew",
+					"3\tCoda",
+				}, "\n") + "\n"
+				if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+					t.Fatalf("failed to write TSV fixture: %v", err)
+				}
+			},
+			wantRows: 3,
+			wantLine: []int{2, 4},
+		},
+		{
+			name:         "xlsx",
+			ext:          ".xlsx",
+			duplicateKey: "5",
+			write: func(t *testing.T, path string) {
+				workbook := excelize.NewFile()
+				sheet := workbook.GetSheetName(workbook.GetActiveSheetIndex())
+				if err := workbook.SetSheetRow(sheet, "A1", &[]any{"id", "name"}); err != nil {
+					t.Fatalf("failed to write XLSX header: %v", err)
+				}
+				if err := workbook.SetSheetRow(sheet, "A2", &[]any{"5", "Eve"}); err != nil {
+					t.Fatalf("failed to write XLSX row 1: %v", err)
+				}
+				if err := workbook.SetSheetRow(sheet, "A3", &[]any{"6", "Finn"}); err != nil {
+					t.Fatalf("failed to write XLSX row 2: %v", err)
+				}
+				if err := workbook.SetSheetRow(sheet, "A4", &[]any{"5", "Echo"}); err != nil {
+					t.Fatalf("failed to write XLSX row 3: %v", err)
+				}
+				if err := workbook.SaveAs(path); err != nil {
+					t.Fatalf("failed to save XLSX fixture: %v", err)
+				}
+			},
+			wantRows: 3,
+			wantLine: []int{2, 4},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			path := filepath.Join(dir, "records"+tc.ext)
+			tc.write(t, path)
+
+			sources, err := source.DiscoverAllWithOptions(
+				context.Background(),
+				[]string{path},
+				source.DefaultAnalysisDiscoveryOptions(),
+			)
+			if err != nil {
+				t.Fatalf("failed to discover source: %v", err)
+			}
+
+			analyser, err := New(&config.Config{
+				Key:      "id",
+				Workers:  2,
+				CheckKey: true,
+				CheckRow: true,
+				LogPath:  filepath.Join(dir, "logs"),
+			})
+			if err != nil {
+				t.Fatalf("failed to create analyser: %v", err)
+			}
+
+			report := analyser.Run(context.Background(), sources)
+			if report == nil {
+				t.Fatal("expected report to be non-nil")
+			}
+
+			if report.Summary.TotalRowsProcessed != tc.wantRows {
+				t.Fatalf("expected %d rows processed, got %d", tc.wantRows, report.Summary.TotalRowsProcessed)
+			}
+			if report.Summary.FilesProcessed != 1 {
+				t.Fatalf("expected 1 file processed, got %d", report.Summary.FilesProcessed)
+			}
+
+			locations, ok := report.DuplicateIDs[tc.duplicateKey]
+			if !ok {
+				t.Fatalf("expected duplicate ID group to be present")
+			}
+			if len(locations) != 2 {
+				t.Fatalf("expected duplicate ID group to contain 2 locations, got %d", len(locations))
+			}
+
+			if locations[0].LineNumber != tc.wantLine[0] || locations[1].LineNumber != tc.wantLine[1] {
+				t.Fatalf("unexpected duplicate line numbers: got [%d %d], want [%d %d]", locations[0].LineNumber, locations[1].LineNumber, tc.wantLine[0], tc.wantLine[1])
+			}
+		})
+	}
+}
+
+func TestAnalyserRunXMLContract(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	firstPath := filepath.Join(dir, "first.xml")
+	secondPath := filepath.Join(dir, "second.xml")
+
+	firstXML := strings.TrimSpace(`
+		<customer status="active">
+			<id>xml-1</id>
+			<name>Alice</name>
+			<emails>
+				<email primary="true">alice@example.com</email>
+				<email>ops@example.com</email>
+			</emails>
+		</customer>
+	`)
+	secondXML := strings.TrimSpace(`
+		<customer status="pending">
+			<id>xml-1</id>
+			<name>Bob</name>
+			<emails>
+				<email>bob@example.com</email>
+			</emails>
+		</customer>
+	`)
+
+	if err := os.WriteFile(firstPath, []byte(firstXML), 0o644); err != nil {
+		t.Fatalf("failed to write first XML fixture: %v", err)
+	}
+	if err := os.WriteFile(secondPath, []byte(secondXML), 0o644); err != nil {
+		t.Fatalf("failed to write second XML fixture: %v", err)
+	}
+
+	sources, err := source.DiscoverAllWithOptions(
+		context.Background(),
+		[]string{dir},
+		source.DefaultAnalysisDiscoveryOptions(),
+	)
+	if err != nil {
+		t.Fatalf("failed to discover XML sources: %v", err)
+	}
+
+	analyser, err := New(&config.Config{
+		Key:      "id",
+		Workers:  2,
+		CheckKey: true,
+		CheckRow: true,
+		LogPath:  filepath.Join(dir, "logs"),
+	})
+	if err != nil {
+		t.Fatalf("failed to create analyser: %v", err)
+	}
+
+	report := analyser.Run(context.Background(), sources)
+	if report == nil {
+		t.Fatal("expected report to be non-nil")
+	}
+
+	if report.Summary.TotalRowsProcessed != 2 {
+		t.Fatalf("expected 2 rows processed, got %d", report.Summary.TotalRowsProcessed)
+	}
+	if report.Summary.FilesProcessed != 2 {
+		t.Fatalf("expected 2 files processed, got %d", report.Summary.FilesProcessed)
+	}
+
+	locations, ok := report.DuplicateIDs["xml-1"]
+	if !ok {
+		t.Fatal("expected duplicate XML ID group")
+	}
+	if len(locations) != 2 {
+		t.Fatalf("expected 2 duplicate locations, got %d", len(locations))
+	}
+	if locations[0].LineNumber != 1 || locations[1].LineNumber != 1 {
+		t.Fatalf("expected XML duplicate line numbers to be 1, got [%d %d]", locations[0].LineNumber, locations[1].LineNumber)
+	}
+}
+
+func TestAnalyserRunXMLRecordPath(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "customers.xml")
+	xmlBody := strings.Join([]string{
+		"<customers>",
+		"  <customer status=\"active\">",
+		"    <id>xml-1</id>",
+		"    <name>Alice</name>",
+		"  </customer>",
+		"  <customer status=\"pending\">",
+		"    <id>xml-1</id>",
+		"    <name>Bob</name>",
+		"  </customer>",
+		"  <customer status=\"active\">",
+		"    <id>xml-2</id>",
+		"    <name>Cara</name>",
+		"  </customer>",
+		"</customers>",
+	}, "\n")
+
+	if err := os.WriteFile(path, []byte(xmlBody), 0o644); err != nil {
+		t.Fatalf("failed to write XML fixture: %v", err)
+	}
+
+	sources, err := source.DiscoverAllWithOptions(
+		context.Background(),
+		[]string{path},
+		source.DefaultAnalysisDiscoveryOptions(),
+	)
+	if err != nil {
+		t.Fatalf("failed to discover XML source: %v", err)
+	}
+
+	analyser, err := New(&config.Config{
+		Key:           "id",
+		XMLRecordPath: "customers.customer",
+		Workers:       2,
+		CheckKey:      true,
+		CheckRow:      true,
+		LogPath:       filepath.Join(dir, "logs"),
+	})
+	if err != nil {
+		t.Fatalf("failed to create analyser: %v", err)
+	}
+
+	report := analyser.Run(context.Background(), sources)
+	if report == nil {
+		t.Fatal("expected report to be non-nil")
+	}
+
+	if report.Summary.TotalRowsProcessed != 3 {
+		t.Fatalf("expected 3 rows processed, got %d", report.Summary.TotalRowsProcessed)
+	}
+	if report.Summary.FilesProcessed != 1 {
+		t.Fatalf("expected 1 file processed, got %d", report.Summary.FilesProcessed)
+	}
+
+	locations, ok := report.DuplicateIDs["xml-1"]
+	if !ok {
+		t.Fatal("expected duplicate XML ID group")
+	}
+	if len(locations) != 2 {
+		t.Fatalf("expected 2 duplicate locations, got %d", len(locations))
+	}
+	if locations[0].LineNumber != 2 || locations[1].LineNumber != 6 {
+		t.Fatalf("expected XML duplicate line numbers [2 6], got [%d %d]", locations[0].LineNumber, locations[1].LineNumber)
 	}
 }
 

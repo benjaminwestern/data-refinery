@@ -1,0 +1,5 @@
+<customer status="active">
+  <id>smoke-007</id>
+  <name>Gina Torres</name>
+  <email>gina@example.com</email>
+</customer>

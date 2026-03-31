@@ -1,0 +1,2 @@
+{"member_id":"ing-jsonl-1","profile":{"first_name":"Margaret","last_name":"Hamilton","email":"margaret@example.com"},"contact":{"mobile":"0400000007","postcode":"3006"},"status":"active","source":"jsonl-smoke"}
+{"member_id":"ing-jsonl-2","profile":{"first_name":"Radia","last_name":"Perlman","email":"radia@example.com"},"contact":{"mobile":"0400000008","postcode":"3007"},"status":"paused","source":"jsonl-smoke"}

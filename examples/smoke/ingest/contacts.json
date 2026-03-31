@@ -1,0 +1,38 @@
+[
+  {
+    "person": {
+      "identifier": "ing-json-1",
+      "name": {
+        "first": "Joan",
+        "last": "Clarke"
+      },
+      "contact": {
+        "email": "joan@example.com",
+        "mobile": "0400000005",
+        "postcode": "3004"
+      }
+    },
+    "metadata": {
+      "source": "json-smoke"
+    },
+    "status": "active"
+  },
+  {
+    "person": {
+      "identifier": "ing-json-2",
+      "name": {
+        "first": "Annie",
+        "last": "Easley"
+      },
+      "contact": {
+        "email": "annie@example.com",
+        "mobile": "0400000006",
+        "postcode": "3005"
+      }
+    },
+    "metadata": {
+      "source": "json-smoke"
+    },
+    "status": "pending"
+  }
+]

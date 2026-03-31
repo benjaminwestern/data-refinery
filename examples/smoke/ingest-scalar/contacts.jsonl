@@ -1,0 +1,2 @@
+{"member_id":"scalar-jsonl-1","profile":{"first_name":"Margaret","last_name":"Hamilton","email":"margaret.scalar@example.com"},"contact":{"mobile":"0400000019","postcode":"3018"},"source":"jsonl-scalar"}
+{"member_id":"scalar-jsonl-2","profile":{"first_name":"Radia","last_name":"Perlman","email":"radia.scalar@example.com"},"contact":{"mobile":"0400000020","postcode":"3019"},"source":"jsonl-scalar"}

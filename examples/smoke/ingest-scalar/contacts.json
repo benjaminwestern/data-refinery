@@ -1,0 +1,20 @@
+[
+  {
+    "identifier": "scalar-json-1",
+    "first_name": "Joan",
+    "last_name": "Clarke",
+    "email": "joan.scalar@example.com",
+    "mobile": "0400000017",
+    "postcode": "3016",
+    "source": "json-scalar"
+  },
+  {
+    "identifier": "scalar-json-2",
+    "first_name": "Annie",
+    "last_name": "Easley",
+    "email": "annie.scalar@example.com",
+    "mobile": "0400000018",
+    "postcode": "3017",
+    "source": "json-scalar"
+  }
+]

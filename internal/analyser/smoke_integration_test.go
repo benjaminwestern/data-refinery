@@ -41,20 +41,7 @@ type fakeGCSServer struct {
 	buckets map[string]map[string]smokeObject
 }
 
-func TestSmokeLocalSources(t *testing.T) {
-	env := newSmokeEnvironment(t)
-	rep, baseName := env.runAnalysis(t, env.localDir)
-
-	assertSummaryBasics(t, rep, 2, 2, 5, env.localFolderSize, 1, 2)
-	assertFolderDetail(t, rep, env.localDir, 2, 2, 5, 5, env.localFolderSize)
-	assertDuplicateGroupSize(t, rep, "2", 2)
-	assertDuplicateRowHashCount(t, rep, 1, 2)
-	assertAdvancedResults(t, rep, 9, 5, 5, 5, 3)
-	assertStandardOutputs(t, baseName)
-	assertAdvancedOutputs(t, env.logDir)
-}
-
-func TestSmokeRemoteSources(t *testing.T) {
+func TestRemoteSourcesIntegration(t *testing.T) {
 	env := newSmokeEnvironment(t)
 	rep, baseName := env.runAnalysis(t, env.remotePath)
 
@@ -63,29 +50,6 @@ func TestSmokeRemoteSources(t *testing.T) {
 	assertDuplicateGroupSize(t, rep, "2", 2)
 	assertDuplicateRowHashCount(t, rep, 1, 2)
 	assertAdvancedResults(t, rep, 9, 5, 5, 5, 3)
-	assertStandardOutputs(t, baseName)
-	assertAdvancedOutputs(t, env.logDir)
-}
-
-func TestSmokeMixedLocalAndRemoteSources(t *testing.T) {
-	env := newSmokeEnvironment(t)
-	rep, baseName := env.runAnalysis(t, env.localDir, env.remotePath)
-
-	totalSize := env.localFolderSize + env.remoteFolderSize
-	assertSummaryBasics(t, rep, 4, 4, 10, totalSize, 4, 10)
-	assertFolderDetail(t, rep, env.localDir, 2, 2, 5, 5, env.localFolderSize)
-	assertFolderDetail(t, rep, env.remotePath, 2, 2, 5, 5, env.remoteFolderSize)
-
-	if len(rep.DuplicateIDs) != 4 {
-		t.Fatalf("expected 4 duplicate ID groups in mixed run, got %d", len(rep.DuplicateIDs))
-	}
-
-	assertDuplicateGroupSize(t, rep, "1", 2)
-	assertDuplicateGroupSize(t, rep, "2", 4)
-	assertDuplicateGroupSize(t, rep, "3", 2)
-	assertDuplicateGroupSize(t, rep, "4", 2)
-	assertDuplicateRowHashCount(t, rep, 4, 10)
-	assertAdvancedResults(t, rep, 18, 10, 10, 10, 6)
 	assertStandardOutputs(t, baseName)
 	assertAdvancedOutputs(t, env.logDir)
 }

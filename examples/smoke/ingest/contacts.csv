@@ -1,0 +1,3 @@
+customer_id,first_name,last_name,email,mobile,postcode,status
+ing-csv-1,Ada,Lovelace,ada@example.com,0400000001,3000,active
+ing-csv-2,Grace,Hopper,grace@example.com,0400000002,3001,pending

@@ -1,0 +1,17 @@
+{
+  "paths": [
+    "./rewrite/source/orders.json"
+  ],
+  "workers": 2,
+  "logPath": "../../.tmp/smoke-cli/rewrite-preview/logs",
+  "mode": "preview",
+  "topLevelKey": "customer_id",
+  "topLevelValues": [
+    "cust-delete"
+  ],
+  "arrayKey": "line_items",
+  "arrayDeleteKey": "item_id",
+  "arrayDeleteValues": [
+    "sku-remove"
+  ]
+}

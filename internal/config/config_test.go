@@ -19,6 +19,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Key != "id" {
 		t.Errorf("Expected Key to be 'id', got '%s'", cfg.Key)
 	}
+	if cfg.XMLRecordPath != "" {
+		t.Errorf("Expected XMLRecordPath to be empty, got '%s'", cfg.XMLRecordPath)
+	}
 	if !cfg.CheckKey {
 		t.Error("Expected CheckKey to be true")
 	}
@@ -73,6 +76,7 @@ func TestLoad_ValidConfig(t *testing.T) {
 	testConfig := Config{
 		Path:                "/test/path",
 		Key:                 "test_key",
+		XMLRecordPath:       "customers.customer",
 		Workers:             4,
 		LogPath:             "test_logs",
 		CheckKey:            false,
@@ -98,6 +102,9 @@ func TestLoad_ValidConfig(t *testing.T) {
 	}
 	if cfg.Key != "test_key" {
 		t.Errorf("Expected Key to be 'test_key', got '%s'", cfg.Key)
+	}
+	if cfg.XMLRecordPath != "customers.customer" {
+		t.Errorf("Expected XMLRecordPath to be 'customers.customer', got '%s'", cfg.XMLRecordPath)
 	}
 	if cfg.Workers != 4 {
 		t.Errorf("Expected Workers to be 4, got %d", cfg.Workers)
@@ -337,6 +344,7 @@ func TestSave(t *testing.T) {
 	cfg := &Config{
 		Path:                "/test/path",
 		Key:                 "test_key",
+		XMLRecordPath:       "customers.customer",
 		Workers:             4,
 		LogPath:             "test_logs",
 		CheckKey:            false,
@@ -372,6 +380,9 @@ func TestSave(t *testing.T) {
 
 	if savedCfg.Path != "/test/path" {
 		t.Errorf("Expected saved Path to be '/test/path', got '%s'", savedCfg.Path)
+	}
+	if savedCfg.XMLRecordPath != "customers.customer" {
+		t.Errorf("Expected saved XMLRecordPath to be 'customers.customer', got '%s'", savedCfg.XMLRecordPath)
 	}
 	if savedCfg.Workers != 4 {
 		t.Errorf("Expected saved Workers to be 4, got %d", savedCfg.Workers)

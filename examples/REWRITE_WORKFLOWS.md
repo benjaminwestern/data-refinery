@@ -7,13 +7,17 @@ portable JSON config file.
 
 ## What rewrite is for
 
-Rewrite handles the current set of safe, line-oriented cleanup operations.
+Rewrite handles the current set of safe, record-oriented cleanup operations.
 
 - Remove whole rows that match a key and value list.
 - Remove nested array entries from each matching row.
 - Update a value recursively anywhere in a row.
 - Scope deletes or updates with optional state and ID filters.
 - Store the job definition in a portable JSON config file.
+
+Rewrite currently supports `.json`, `.ndjson`, `.jsonl`, and `.xml` inputs.
+For XML, you must set `xmlRecordPath` so repeated elements are treated as
+logical records.
 
 The rewrite flow is CLI-only today. The TUI remains focused on analysis,
 validation, and reporting.
@@ -25,22 +29,27 @@ Rewrite is designed to make operational cleanup predictable.
 - `preview` reports what would change without writing anything.
 - `apply` writes rewritten output only after it creates a timestamped backup
   snapshot.
-- Malformed or non-JSON lines are preserved as-is rather than dropped.
+- For JSON-family inputs, malformed or non-JSON lines are preserved as-is
+  rather than dropped.
+- XML inputs must parse as a valid document before rewrite begins.
 - Relative `paths`, `logPath`, and `backupDir` values are resolved from the
   rewrite config file location.
 
-For best results, use NDJSON, JSONL, or single-line JSON objects.
+For best results, use NDJSON, JSONL, single-line JSON objects, or XML with an
+explicit `xmlRecordPath`.
 
 ## Portable config shape
 
 The rewrite config is a flat JSON object. You can use either `path` or
-`paths`, and you only need the fields for the operation you are running.
+`paths`, and you only need the fields for the operation you are running. Use
+`xmlRecordPath` only for XML jobs.
 
 ```json
 {
   "paths": ["../test_data/test1.json", "../test_data/test2.json"],
   "workers": 4,
   "logPath": "../logs",
+  "xmlRecordPath": "orders.order",
   "mode": "preview",
   "backupDir": "../backups/rewrite",
   "topLevelKey": "customer_id",
@@ -81,6 +90,20 @@ replacement.
 
 ```sh
 ./data-refinery rewrite -config examples/rewrite-update-config.json
+```
+
+### Preview an XML rewrite
+
+Use an XML record path when each repeated element should behave like one
+logical row in preview and apply mode.
+
+```sh
+./data-refinery rewrite \
+  -path examples/smoke/rewrite/source/orders.xml \
+  -xml-record-path orders.order \
+  -top-level-key customer_id \
+  -top-level-vals cust-delete \
+  -mode preview
 ```
 
 ### Run directly from flags

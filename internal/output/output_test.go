@@ -26,8 +26,11 @@ func TestNewOutputManager(t *testing.T) {
 	if om.basePath != basePath {
 		t.Errorf("Expected base path %s, got %s", basePath, om.basePath)
 	}
-	if om.outputFiles == nil {
-		t.Error("Expected output files to be initialized")
+	if om.outputTargets == nil {
+		t.Error("Expected output targets to be initialized")
+	}
+	if om.outputPaths == nil {
+		t.Error("Expected output paths to be initialized")
 	}
 	if om.outputWriters == nil {
 		t.Error("Expected output writers to be initialized")
@@ -375,6 +378,14 @@ func TestOutputManager_GetOutputPath(t *testing.T) {
 	expectedPath := filepath.Join(basePath, "test_"+om.timestamp+".json")
 	if outputPath != expectedPath {
 		t.Errorf("Expected output path %s, got %s", expectedPath, outputPath)
+	}
+}
+
+func TestJoinOutputPathGCS(t *testing.T) {
+	got := joinOutputPath("gs://bucket/prefix", "report.json")
+	want := "gs://bucket/prefix/report.json"
+	if got != want {
+		t.Fatalf("joinOutputPath returned %q, want %q", got, want)
 	}
 }
 

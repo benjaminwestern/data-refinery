@@ -1,0 +1,3 @@
+customer_id,first_name,last_name,email,mobile,postcode,source
+scalar-csv-1,Ada,Lovelace,ada@example.com,0400000011,3010,csv-scalar
+scalar-csv-2,Grace,Hopper,grace@example.com,0400000012,3011,csv-scalar

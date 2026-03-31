@@ -1,9 +1,10 @@
 # Examples directory
 
-This directory is split between ingest templates, analysis templates, and
-rewrite configs. The important difference is that analysis templates feed the
-base app config model, while ingest and rewrite examples are passed directly
-to `data-refinery ingest -config ...` or
+This directory is split between ingest templates, analysis templates, rewrite
+configs, and the checked-in smoke corpus used by the BATS CLI suite. The
+important difference is that analysis templates feed the base app config model,
+while ingest and rewrite examples are passed directly to
+`data-refinery ingest -config ...` or
 `data-refinery rewrite -config ...`.
 
 ## How to use the ingest examples
@@ -15,6 +16,8 @@ the ingest subcommand.
 The main ingest output can be `.csv`, `.json`, `.ndjson`, or `.jsonl`. Use
 `.csv` only when the normalized rows stay scalar. If your mapping produces the
 unified `Attributes` array, use one of the JSON-family outputs instead.
+XML ingest uses `xmlRecordPath` in the matching mapping rule when repeated
+elements should be treated as logical records.
 
 1. Pick the ingest example and update `paths`, `outputPath`, `logPath`, or
    `mappingFile` for your environment.
@@ -29,7 +32,7 @@ For example:
 ```
 
 The `ingest-simple-*` examples are the clearest starting point if you want to
-see CSV, TSV, and JSON handled as first-class inputs. The
+see CSV, TSV, XML, and JSON handled as first-class inputs. The
 `ingest-complex-*` examples show the supported nested-mapping pattern for
 building the unified `Attributes` array from explicit nested paths.
 
@@ -38,6 +41,10 @@ building the unified `Attributes` array from explicit nested paths.
 Analysis examples are standard app config templates. The cleanest way to run
 them is with `--app-config`, although you can still copy a file into one of
 the implicit config locations if that fits your workflow better.
+
+Analysis can inspect `.csv`, `.tsv`, `.xlsx`, `.xml`, `.json`, `.ndjson`, and
+`.jsonl` inputs through the same workflow. For XML, set `xmlRecordPath` when a
+repeating element should be treated as one logical record.
 
 1. Pick the example you want to try and update `path`, `logPath`, and any
    target values for your environment.
@@ -58,6 +65,10 @@ CLI flags still override values loaded from the app config file.
 
 Rewrite examples are portable job definitions. You edit them in place if
 needed, then pass them to the rewrite command with `-config`.
+
+Rewrite currently supports `.json`, `.ndjson`, `.jsonl`, and `.xml` inputs.
+XML rewrites require `xmlRecordPath` so the tool knows which repeated element
+represents a logical record.
 
 1. Pick the nearest rewrite example.
 2. Update any path, value list, or backup settings you need.
@@ -87,6 +98,7 @@ Use this guide when you want the quickest route to the right file.
 | `selective_hash_config.json` | Compare rows using only business-relevant fields. |
 | `rewrite-delete-config.json` | Preview or apply top-level row deletion from a portable rewrite config. |
 | `rewrite-update-config.json` | Preview or apply recursive updates with backups. |
+| `smoke/` | Inspect the checked-in fake data and config files used by the CLI smoke suite. |
 | `comprehensive_test.json` | Exercise most advanced analysis features against the repository fixtures. |
 | `test_advanced.json` | Run a minimal advanced analysis smoke test against `./test_data`. |
 | `test_config.json` | Run an analysis smoke test with search, schema, and derived deletion output. |

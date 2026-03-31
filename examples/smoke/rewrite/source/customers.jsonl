@@ -1,0 +1,3 @@
+{"id":"rewrite-001","customer_id":"cust-remove","state":"active","email":"remove@example.com","line_items":[{"item_id":"obsolete-plan","qty":1},{"item_id":"keep-plan","qty":2}]}
+{"id":"rewrite-002","customer_id":"cust-keep","state":"active","email":"old-email@example.com","line_items":[{"item_id":"keep-plan","qty":1}]}
+{"id":"rewrite-003","customer_id":"cust-keep-2","state":"inactive","email":"stable@example.com","line_items":[{"item_id":"obsolete-plan","qty":1},{"item_id":"keep-plan","qty":1}]}

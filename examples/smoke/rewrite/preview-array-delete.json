@@ -1,0 +1,13 @@
+{
+  "paths": [
+    "./source/customers.jsonl"
+  ],
+  "workers": 2,
+  "logPath": "../../../logs/smoke-cli/rewrite-preview-array-delete",
+  "mode": "preview",
+  "arrayKey": "line_items",
+  "arrayDeleteKey": "item_id",
+  "arrayDeleteValues": [
+    "obsolete-plan"
+  ]
+}

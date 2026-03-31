@@ -1,0 +1,12 @@
+{
+  "paths": [
+    "./source/customers.jsonl"
+  ],
+  "workers": 2,
+  "logPath": "../../../logs/smoke-cli/rewrite-preview-top-level-delete",
+  "mode": "preview",
+  "topLevelKey": "customer_id",
+  "topLevelValues": [
+    "cust-remove"
+  ]
+}

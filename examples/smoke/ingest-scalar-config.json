@@ -1,0 +1,17 @@
+{
+  "paths": [
+    "./ingest-scalar/contacts.csv",
+    "./ingest-scalar/contacts.tsv",
+    "./ingest-scalar/contacts.xlsx",
+    "./ingest-scalar/contacts.xml",
+    "./ingest-scalar/contacts.json",
+    "./ingest-scalar/contacts.jsonl"
+  ],
+  "workers": 2,
+  "logPath": "../../.tmp/smoke-cli/ingest-scalar/logs",
+  "approvedOutputRoot": "../../.tmp/smoke-cli",
+  "outputPath": "../../.tmp/smoke-cli/ingest-scalar/unified.csv",
+  "mappingFile": "./ingest-scalar-mappings.yaml",
+  "requireMappings": true,
+  "statsOutputPath": "../../.tmp/smoke-cli/ingest-scalar/summary.json"
+}

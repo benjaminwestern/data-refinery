@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -16,8 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/xuri/excelize/v2"
-
+	"github.com/benjaminwestern/data-refinery/internal/input"
 	"github.com/benjaminwestern/data-refinery/internal/output"
 	jsonpath "github.com/benjaminwestern/data-refinery/internal/path"
 	"github.com/benjaminwestern/data-refinery/internal/safety"
@@ -93,6 +91,7 @@ const (
 	inputFormatCSV                 = string(outputFormatCSV)
 	inputFormatTSV                 = "tsv"
 	inputFormatXLSX                = "xlsx"
+	inputFormatXML                 = "xml"
 	inputFormatJSON                = string(outputFormatJSON)
 	inputFormatJSONL               = string(outputFormatJSONL)
 	fileStatusSuccess              = "success"
@@ -119,11 +118,9 @@ type unifiedWriter struct {
 	ctx         context.Context
 	targetPath  string
 	format      outputFormat
-	localFile   *os.File
-	localWriter *bufio.Writer
-	gcsWriter   *output.GCSWriter
+	target      output.Target
+	buffered    *bufio.Writer
 	csvWriter   *csv.Writer
-	tempPath    string
 	failed      bool
 	wroteRecord bool
 }
@@ -278,7 +275,6 @@ func processSource(ctx context.Context, writer *unifiedWriter, mappings *Mapping
 		stats.ErrorMessage = err.Error()
 		return stats, fmt.Errorf("open %s: %w", src.Path(), err)
 	}
-	defer safety.Close(reader, src.Path())
 
 	ingestTime := time.Now().UTC()
 	warnings := make(map[string]struct{})
@@ -303,7 +299,7 @@ func processSource(ctx context.Context, writer *unifiedWriter, mappings *Mapping
 		return nil
 	}
 
-	if err := streamInputRecords(ctx, reader, format, mapping.Sheet, handleRecord); err != nil {
+	if err := streamInputRecords(ctx, src.Path(), reader, format, mapping.Sheet, mapping.XMLRecordPath, handleRecord); err != nil {
 		stats.Status = fileStatusFailed
 		stats.RowsRead = rowCounter.Load()
 		stats.ErrorMessage = err.Error()
@@ -434,181 +430,47 @@ func normalizeRecord(row map[string]any, src source.InputSource, mapping *Resolv
 	return record, warnings, nil
 }
 
-func streamInputRecords(ctx context.Context, reader io.Reader, format, sheet string, handle recordHandler) error {
-	switch format {
-	case inputFormatCSV:
-		return streamDelimitedRecords(ctx, reader, ',', handle)
-	case inputFormatTSV:
-		return streamDelimitedRecords(ctx, reader, '\t', handle)
-	case inputFormatXLSX:
-		return streamSpreadsheetRecords(ctx, reader, sheet, handle)
-	case inputFormatJSON:
-		return streamJSONRecords(ctx, reader, handle)
-	case inputFormatJSONL:
-		return streamJSONLines(ctx, reader, handle)
-	default:
+func streamInputRecords(ctx context.Context, sourcePath string, reader io.ReadCloser, format, sheet, xmlRecordPath string, handle recordHandler) error {
+	readerFormat := input.NormalizeFormat(format)
+	if readerFormat == input.FormatUnknown {
 		return fmt.Errorf("unsupported input format %q", format)
 	}
-}
 
-func streamDelimitedRecords(ctx context.Context, reader io.Reader, delimiter rune, handle recordHandler) error {
-	csvReader := csv.NewReader(reader)
-	csvReader.Comma = delimiter
-	csvReader.FieldsPerRecord = -1
-
-	headers, err := csvReader.Read()
-	if err == io.EOF {
-		return nil
+	opts := []input.ReaderOption{
+		input.WithSheet(sheet),
+		input.WithScanBuffer(defaultScanBuffer, maxScanBuffer),
 	}
+	if readerFormat == input.FormatXML && strings.TrimSpace(xmlRecordPath) != "" {
+		opts = append(opts, input.WithXMLRecordPath(xmlRecordPath))
+	}
+
+	sharedReader, err := input.NewReaderFromReadCloser(
+		sourcePath,
+		reader,
+		readerFormat,
+		opts...,
+	)
 	if err != nil {
-		return fmt.Errorf("read header row: %w", err)
+		return fmt.Errorf("create shared reader for %s: %w", sourcePath, err)
 	}
-	headers = normalizeHeaders(headers)
+	defer safety.Close(sharedReader, sourcePath)
 
 	for {
 		if ctx.Err() != nil {
-			return fmt.Errorf("stream delimited records: %w", ctx.Err())
+			return fmt.Errorf("stream input records: %w", ctx.Err())
 		}
 
-		record, err := csvReader.Read()
+		record, err := sharedReader.Next(ctx)
 		if err == io.EOF {
 			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("read delimited row: %w", err)
+			return fmt.Errorf("read input record from %s: %w", sourcePath, err)
 		}
-
-		row := make(map[string]any, len(headers))
-		for index, header := range headers {
-			value := ""
-			if index < len(record) {
-				value = record[index]
-			}
-			row[header] = value
-		}
-		if !rowHasValues(row) {
-			continue
-		}
-		if err := handle(row); err != nil {
+		if err := handle(record.Data); err != nil {
 			return err
 		}
 	}
-}
-
-func streamSpreadsheetRecords(ctx context.Context, reader io.Reader, sheet string, handle recordHandler) error {
-	workbook, err := excelize.OpenReader(reader)
-	if err != nil {
-		return fmt.Errorf("open workbook: %w", err)
-	}
-	defer safety.Close(workbook, "workbook")
-
-	targetSheet := sheet
-	if targetSheet == "" {
-		sheets := workbook.GetSheetList()
-		if len(sheets) == 0 {
-			return fmt.Errorf("workbook does not contain any sheets")
-		}
-		targetSheet = sheets[0]
-	}
-
-	rows, err := workbook.Rows(targetSheet)
-	if err != nil {
-		return fmt.Errorf("open sheet %q: %w", targetSheet, err)
-	}
-	defer safety.Close(rows, targetSheet)
-
-	var headers []string
-	for rows.Next() {
-		if ctx.Err() != nil {
-			return fmt.Errorf("stream spreadsheet records: %w", ctx.Err())
-		}
-
-		columns, err := rows.Columns()
-		if err != nil {
-			return fmt.Errorf("read spreadsheet row: %w", err)
-		}
-
-		if headers == nil {
-			headers = normalizeHeaders(columns)
-			continue
-		}
-
-		row := make(map[string]any, len(headers))
-		for index, header := range headers {
-			value := ""
-			if index < len(columns) {
-				value = columns[index]
-			}
-			row[header] = value
-		}
-		if !rowHasValues(row) {
-			continue
-		}
-		if err := handle(row); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func streamJSONLines(ctx context.Context, reader io.Reader, handle recordHandler) error {
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 0, defaultScanBuffer), maxScanBuffer)
-
-	lineNumber := 0
-	for scanner.Scan() {
-		if ctx.Err() != nil {
-			return fmt.Errorf("stream JSON lines: %w", ctx.Err())
-		}
-		lineNumber++
-
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-
-		var row map[string]any
-		decoder := json.NewDecoder(strings.NewReader(line))
-		decoder.UseNumber()
-		if err := decoder.Decode(&row); err != nil {
-			return fmt.Errorf("decode JSONL line %d: %w", lineNumber, err)
-		}
-
-		if err := handle(row); err != nil {
-			return err
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("scan JSONL input: %w", err)
-	}
-
-	return nil
-}
-
-func streamJSONRecords(ctx context.Context, reader io.Reader, handle recordHandler) error {
-	buffered := bufio.NewReader(reader)
-	firstByte, err := peekNonWhitespace(buffered)
-	if err == io.EOF {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("inspect JSON input: %w", err)
-	}
-
-	decoder := json.NewDecoder(buffered)
-	decoder.UseNumber()
-
-	if firstByte != '[' {
-		var row map[string]any
-		if err := decoder.Decode(&row); err != nil {
-			return fmt.Errorf("decode JSON object: %w", err)
-		}
-		return handle(row)
-	}
-
-	return streamJSONArrayRecords(ctx, decoder, handle)
 }
 
 func newUnifiedWriter(ctx context.Context, targetPath string) (*unifiedWriter, error) {
@@ -663,50 +525,23 @@ func (w *unifiedWriter) Close() error {
 }
 
 func newJSONLUnifiedWriter(writer *unifiedWriter) (*unifiedWriter, error) {
-	if isRemotePath(writer.targetPath) {
-		gcsWriter, err := output.NewGCSWriter(writer.ctx, writer.targetPath)
-		if err != nil {
-			return nil, fmt.Errorf("create GCS output writer: %w", err)
-		}
-		if err := gcsWriter.Open(); err != nil {
-			return nil, fmt.Errorf("open GCS output writer: %w", err)
-		}
-		writer.gcsWriter = gcsWriter
-		return writer, nil
-	}
-
-	if err := os.MkdirAll(filepath.Dir(writer.targetPath), 0o700); err != nil {
-		return nil, fmt.Errorf("create output directory: %w", err)
-	}
-
-	file, err := os.OpenFile(writer.targetPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	target, err := output.NewTarget(writer.ctx, writer.targetPath)
 	if err != nil {
-		return nil, fmt.Errorf("open output file: %w", err)
+		return nil, fmt.Errorf("create staged output target: %w", err)
 	}
-	writer.localFile = file
-	writer.localWriter = bufio.NewWriter(file)
+	writer.target = target
 	return writer, nil
 }
 
 func newCSVUnifiedWriter(writer *unifiedWriter) (*unifiedWriter, error) {
-	tempDir := ""
-	if !isRemotePath(writer.targetPath) {
-		tempDir = filepath.Dir(writer.targetPath)
-		if err := os.MkdirAll(tempDir, 0o700); err != nil {
-			return nil, fmt.Errorf("create output directory: %w", err)
-		}
-	}
-
-	tempFile, err := os.CreateTemp(tempDir, "data-refinery-ingest-*.csv")
+	target, err := output.NewTarget(writer.ctx, writer.targetPath)
 	if err != nil {
-		return nil, fmt.Errorf("create temporary CSV output file: %w", err)
+		return nil, fmt.Errorf("create staged output target: %w", err)
 	}
-	writer.localFile = tempFile
-	writer.tempPath = tempFile.Name()
-	writer.csvWriter = csv.NewWriter(tempFile)
+	writer.target = target
+	writer.csvWriter = csv.NewWriter(target)
 	if err := writer.csvWriter.Write(csvOutputHeaders); err != nil {
-		safety.Close(tempFile, writer.tempPath)
-		safety.Remove(writer.tempPath, writer.tempPath)
+		_ = target.Abort(writer.ctx)
 		return nil, fmt.Errorf("write CSV header: %w", err)
 	}
 
@@ -714,24 +549,14 @@ func newCSVUnifiedWriter(writer *unifiedWriter) (*unifiedWriter, error) {
 }
 
 func newJSONUnifiedWriter(writer *unifiedWriter) (*unifiedWriter, error) {
-	tempDir := ""
-	if !isRemotePath(writer.targetPath) {
-		tempDir = filepath.Dir(writer.targetPath)
-		if err := os.MkdirAll(tempDir, 0o700); err != nil {
-			return nil, fmt.Errorf("create output directory: %w", err)
-		}
-	}
-
-	tempFile, err := os.CreateTemp(tempDir, "data-refinery-ingest-*.json")
+	target, err := output.NewTarget(writer.ctx, writer.targetPath)
 	if err != nil {
-		return nil, fmt.Errorf("create temporary JSON output file: %w", err)
+		return nil, fmt.Errorf("create staged output target: %w", err)
 	}
-	writer.localFile = tempFile
-	writer.localWriter = bufio.NewWriter(tempFile)
-	writer.tempPath = tempFile.Name()
-	if _, err := writer.localWriter.WriteString("["); err != nil {
-		safety.Close(tempFile, writer.tempPath)
-		safety.Remove(writer.tempPath, writer.tempPath)
+	writer.target = target
+	writer.buffered = bufio.NewWriter(target)
+	if _, err := writer.buffered.WriteString("["); err != nil {
+		_ = target.Abort(writer.ctx)
 		return nil, fmt.Errorf("write JSON array prefix: %w", err)
 	}
 
@@ -744,19 +569,9 @@ func (w *unifiedWriter) writeJSONLRecord(record unifiedRecord) error {
 		return fmt.Errorf("marshal unified record: %w", err)
 	}
 
-	if w.localWriter != nil {
-		if _, err := w.localWriter.Write(data); err != nil {
+	if w.target != nil {
+		if err := w.target.WriteLine(data); err != nil {
 			return fmt.Errorf("write output record: %w", err)
-		}
-		if err := w.localWriter.WriteByte('\n'); err != nil {
-			return fmt.Errorf("write output newline: %w", err)
-		}
-		return nil
-	}
-
-	if w.gcsWriter != nil {
-		if _, err := w.gcsWriter.WriteLine(string(data)); err != nil {
-			return fmt.Errorf("write GCS output record: %w", err)
 		}
 		return nil
 	}
@@ -791,7 +606,7 @@ func (w *unifiedWriter) writeJSONRecord(record unifiedRecord) error {
 		w.failed = true
 		return fmt.Errorf("marshal unified record: %w", err)
 	}
-	if w.localWriter == nil {
+	if w.buffered == nil {
 		w.failed = true
 		return fmt.Errorf("json writer is not initialized")
 	}
@@ -800,11 +615,11 @@ func (w *unifiedWriter) writeJSONRecord(record unifiedRecord) error {
 	if w.wroteRecord {
 		prefix = ",\n"
 	}
-	if _, err := w.localWriter.WriteString(prefix); err != nil {
+	if _, err := w.buffered.WriteString(prefix); err != nil {
 		w.failed = true
 		return fmt.Errorf("write JSON output delimiter: %w", err)
 	}
-	if _, err := w.localWriter.Write(data); err != nil {
+	if _, err := w.buffered.Write(data); err != nil {
 		w.failed = true
 		return fmt.Errorf("write JSON output record: %w", err)
 	}
@@ -813,25 +628,24 @@ func (w *unifiedWriter) writeJSONRecord(record unifiedRecord) error {
 }
 
 func (w *unifiedWriter) closeJSONLWriter() error {
-	if w.localWriter != nil {
-		if err := w.localWriter.Flush(); err != nil {
-			return fmt.Errorf("flush JSONL output writer: %w", err)
-		}
-		w.localWriter = nil
-	}
-	if w.localFile != nil {
-		if err := w.localFile.Close(); err != nil {
-			return fmt.Errorf("close JSONL output file: %w", err)
-		}
-		w.localFile = nil
-	}
-	if w.gcsWriter != nil {
-		if err := w.gcsWriter.Close(); err != nil {
-			return fmt.Errorf("close JSONL GCS output writer: %w", err)
-		}
-		w.gcsWriter = nil
+	if w.target == nil {
+		return nil
 	}
 
+	if w.failed {
+		err := w.target.Abort(w.ctx)
+		w.target = nil
+		if err != nil {
+			return fmt.Errorf("abort JSONL output target: %w", err)
+		}
+		return nil
+	}
+
+	err := w.target.Commit(w.ctx)
+	w.target = nil
+	if err != nil {
+		return fmt.Errorf("commit JSONL output target: %w", err)
+	}
 	return nil
 }
 
@@ -844,79 +658,62 @@ func (w *unifiedWriter) closeCSVWriter() error {
 		}
 		w.csvWriter = nil
 	}
-	if w.localFile != nil {
-		if err := w.localFile.Close(); err != nil {
-			return fmt.Errorf("close CSV temp output file: %w", err)
-		}
-		w.localFile = nil
-	}
-
-	if w.tempPath == "" {
+	if w.target == nil {
 		return nil
 	}
-	defer safety.Remove(w.tempPath, w.tempPath)
 
 	if w.failed {
+		err := w.target.Abort(w.ctx)
+		w.target = nil
+		if err != nil {
+			return fmt.Errorf("abort CSV output target: %w", err)
+		}
 		return nil
 	}
 
-	if isRemotePath(w.targetPath) {
-		return copyFileToPath(w.ctx, w.tempPath, w.targetPath)
+	err := w.target.Commit(w.ctx)
+	w.target = nil
+	if err != nil {
+		return fmt.Errorf("commit CSV output target: %w", err)
 	}
-
-	if err := os.MkdirAll(filepath.Dir(w.targetPath), 0o700); err != nil {
-		return fmt.Errorf("create output directory: %w", err)
-	}
-	if err := os.Rename(w.tempPath, w.targetPath); err != nil {
-		return fmt.Errorf("commit CSV output file: %w", err)
-	}
-	w.tempPath = ""
 	return nil
 }
 
 func (w *unifiedWriter) closeJSONWriter() error {
-	if w.localWriter != nil {
+	if w.buffered != nil {
 		suffix := "]\n"
 		if w.wroteRecord {
 			suffix = "\n]\n"
 		}
-		if _, err := w.localWriter.WriteString(suffix); err != nil {
+		if _, err := w.buffered.WriteString(suffix); err != nil {
 			w.failed = true
 			return fmt.Errorf("write JSON output suffix: %w", err)
 		}
-		if err := w.localWriter.Flush(); err != nil {
+		if err := w.buffered.Flush(); err != nil {
 			w.failed = true
 			return fmt.Errorf("flush JSON output writer: %w", err)
 		}
-		w.localWriter = nil
-	}
-	if w.localFile != nil {
-		if err := w.localFile.Close(); err != nil {
-			return fmt.Errorf("close JSON temp output file: %w", err)
-		}
-		w.localFile = nil
+		w.buffered = nil
 	}
 
-	if w.tempPath == "" {
+	if w.target == nil {
 		return nil
 	}
-	defer safety.Remove(w.tempPath, w.tempPath)
 
 	if w.failed {
+		err := w.target.Abort(w.ctx)
+		w.target = nil
+		if err != nil {
+			return fmt.Errorf("abort JSON output target: %w", err)
+		}
 		return nil
 	}
 
-	if isRemotePath(w.targetPath) {
-		return copyFileToPath(w.ctx, w.tempPath, w.targetPath)
+	err := w.target.Commit(w.ctx)
+	w.target = nil
+	if err != nil {
+		return fmt.Errorf("commit JSON output target: %w", err)
 	}
-
-	if err := os.MkdirAll(filepath.Dir(w.targetPath), 0o700); err != nil {
-		return fmt.Errorf("create output directory: %w", err)
-	}
-	if err := os.Rename(w.tempPath, w.targetPath); err != nil {
-		return fmt.Errorf("commit JSON output file: %w", err)
-	}
-	w.tempPath = ""
 	return nil
 }
 
@@ -929,66 +726,16 @@ func writeSummary(ctx context.Context, targetPath string, summary *Summary) erro
 }
 
 func writeBytesToPath(ctx context.Context, targetPath string, data []byte) error {
-	if isRemotePath(targetPath) {
-		gcsWriter, err := output.NewGCSWriter(ctx, targetPath)
-		if err != nil {
-			return fmt.Errorf("create GCS writer: %w", err)
-		}
-		defer safety.Close(gcsWriter, targetPath)
-
-		if err := gcsWriter.Open(); err != nil {
-			return fmt.Errorf("open GCS writer: %w", err)
-		}
-		if _, err := gcsWriter.Write(data); err != nil {
-			return fmt.Errorf("write GCS object: %w", err)
-		}
-		return nil
-	}
-
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o700); err != nil {
-		return fmt.Errorf("create summary directory: %w", err)
-	}
-	if err := os.WriteFile(targetPath, data, 0o600); err != nil {
-		return fmt.Errorf("write summary file: %w", err)
-	}
-
-	return nil
-}
-
-func copyFileToPath(ctx context.Context, localPath, targetPath string) error {
-	file, err := os.Open(localPath)
+	target, err := output.NewTarget(ctx, targetPath)
 	if err != nil {
-		return fmt.Errorf("open staged output file: %w", err)
+		return fmt.Errorf("create output target: %w", err)
 	}
-	defer safety.Close(file, localPath)
-
-	if isRemotePath(targetPath) {
-		gcsWriter, err := output.NewGCSWriter(ctx, targetPath)
-		if err != nil {
-			return fmt.Errorf("create GCS writer: %w", err)
-		}
-		defer safety.Close(gcsWriter, targetPath)
-
-		if err := gcsWriter.Open(); err != nil {
-			return fmt.Errorf("open GCS writer: %w", err)
-		}
-		if _, err := gcsWriter.StreamCopy(file); err != nil {
-			return fmt.Errorf("stream staged output to GCS: %w", err)
-		}
-		return nil
+	if _, err := target.Write(data); err != nil {
+		_ = target.Abort(ctx)
+		return fmt.Errorf("write target data: %w", err)
 	}
-
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o700); err != nil {
-		return fmt.Errorf("create output directory: %w", err)
-	}
-	destination, err := os.OpenFile(targetPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
-	if err != nil {
-		return fmt.Errorf("open destination file: %w", err)
-	}
-	defer safety.Close(destination, targetPath)
-
-	if _, err := io.Copy(destination, file); err != nil {
-		return fmt.Errorf("copy staged output file: %w", err)
+	if err := target.Commit(ctx); err != nil {
+		return fmt.Errorf("commit target data: %w", err)
 	}
 	return nil
 }
@@ -1063,40 +810,6 @@ func resolvePathValue(current any, components []jsonpath.Component) (any, bool) 
 	}
 
 	return resolveArrayPathValue(value, component, components[1:])
-}
-
-func streamJSONArrayRecords(ctx context.Context, decoder *json.Decoder, handle recordHandler) error {
-	token, err := decoder.Token()
-	if err != nil {
-		return fmt.Errorf("read JSON array token: %w", err)
-	}
-
-	delim, ok := token.(json.Delim)
-	if !ok || delim != '[' {
-		return fmt.Errorf("expected JSON array")
-	}
-
-	rowIndex := 0
-	for decoder.More() {
-		if ctx.Err() != nil {
-			return fmt.Errorf("stream JSON array records: %w", ctx.Err())
-		}
-
-		var row map[string]any
-		if err := decoder.Decode(&row); err != nil {
-			return fmt.Errorf("decode JSON array row %d: %w", rowIndex+1, err)
-		}
-		if err := handle(row); err != nil {
-			return err
-		}
-		rowIndex++
-	}
-
-	if _, err := decoder.Token(); err != nil {
-		return fmt.Errorf("close JSON array: %w", err)
-	}
-
-	return nil
 }
 
 func resolveArrayPathValue(value any, component jsonpath.Component, remaining []jsonpath.Component) (any, bool) {
@@ -1174,12 +887,16 @@ func makeNullLookup(values []string) map[string]struct{} {
 
 func ingestDiscoveryOptions() source.DiscoveryOptions {
 	return source.DiscoveryOptions{
-		AllowedExtensions: []string{".csv", ".tsv", ".xlsx", ".json", ".ndjson", ".jsonl"},
+		AllowedExtensions: []string{".csv", ".tsv", ".xlsx", ".xml", ".json", ".ndjson", ".jsonl"},
 		AllowedContentTypes: map[string]bool{
 			"text/csv":                  true,
 			"application/csv":           true,
 			"text/tab-separated-values": true,
 			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": true,
+			"application/xml":            true,
+			"text/xml":                   true,
+			"application/rss+xml":        true,
+			"application/atom+xml":       true,
 			"application/json":           true,
 			"application/x-ndjson":       true,
 			"application/json-seq":       true,
@@ -1187,7 +904,7 @@ func ingestDiscoveryOptions() source.DiscoveryOptions {
 			"application/jsonlines+json": true,
 			"application/x-jsonlines":    true,
 		},
-		Description: "CSV, TSV, XLSX, JSON, NDJSON, or JSONL",
+		Description: "CSV, TSV, XLSX, XML, JSON, NDJSON, or JSONL",
 	}
 }
 
@@ -1199,6 +916,8 @@ func inferInputFormat(path string) string {
 		return inputFormatTSV
 	case ".xlsx":
 		return inputFormatXLSX
+	case ".xml":
+		return inputFormatXML
 	case ".json":
 		return inputFormatJSON
 	case ".ndjson", ".jsonl":
@@ -1216,6 +935,8 @@ func normalizeInputFormat(format string) string {
 		return inputFormatTSV
 	case inputFormatXLSX:
 		return inputFormatXLSX
+	case inputFormatXML:
+		return inputFormatXML
 	case inputFormatJSON:
 		return inputFormatJSON
 	case "ndjson", "jsonl":
@@ -1299,51 +1020,4 @@ func stringValue(value *string) string {
 		return ""
 	}
 	return *value
-}
-
-func normalizeHeaders(headers []string) []string {
-	normalized := make([]string, 0, len(headers))
-	for index, header := range headers {
-		header = strings.TrimPrefix(header, "\ufeff")
-		header = strings.TrimSpace(header)
-		if header == "" {
-			header = fmt.Sprintf("column_%d", index+1)
-		}
-		normalized = append(normalized, header)
-	}
-	return normalized
-}
-
-func rowHasValues(row map[string]any) bool {
-	for _, value := range row {
-		text, ok := normalizeValue(value, true, makeNullLookup([]string{""}))
-		if ok && text != nil && *text != "" {
-			return true
-		}
-	}
-	return false
-}
-
-func peekNonWhitespace(reader *bufio.Reader) (byte, error) {
-	for {
-		b, err := reader.ReadByte()
-		if err != nil {
-			return 0, fmt.Errorf("read next non-whitespace byte: %w", err)
-		}
-		if !isWhitespace(b) {
-			if err := reader.UnreadByte(); err != nil {
-				return 0, fmt.Errorf("rewind buffered byte: %w", err)
-			}
-			return b, nil
-		}
-	}
-}
-
-func isWhitespace(b byte) bool {
-	switch b {
-	case ' ', '\n', '\r', '\t':
-		return true
-	default:
-		return false
-	}
 }

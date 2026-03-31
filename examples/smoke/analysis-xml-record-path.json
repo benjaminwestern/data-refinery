@@ -1,0 +1,12 @@
+{
+  "path": "examples/smoke/analysis/xml",
+  "key": "id",
+  "xmlRecordPath": "customers.customer",
+  "workers": 2,
+  "logPath": "logs/smoke-cli/analysis-xml-record-path",
+  "checkKey": true,
+  "checkRow": true,
+  "showFolderBreakdown": false,
+  "enableTxtOutput": true,
+  "enableJsonOutput": true
+}

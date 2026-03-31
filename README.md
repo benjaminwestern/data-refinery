@@ -9,20 +9,35 @@
 ## Overview
 
 Data Refinery gives you one CLI for three distinct jobs: normalize raw files
-into a stable dataset, inspect JSON-family data without changing it, and then
+into a stable dataset, inspect structured data without changing it, and then
 run preview-first cleanup when you are ready to mutate source records. The
 product surface is intentionally workflow-first so the first useful command and
 the first safe change are both obvious.
 
-This release folds the older `py-file-ingestion` capability into the current
-framework. You can now convert CSV, TSV, XLSX, JSON, NDJSON, and JSONL inputs
-into one unified schema, then write the result locally or to `gs://...`.
+This release consolidates the normalization workflow into the current CLI. You
+can now convert CSV, TSV, XLSX, XML, JSON, NDJSON, and JSONL inputs into one
+unified schema, then write the result locally or to `gs://...`.
 
 | Workflow | Primary command | Use it when you need to | Main outputs |
 | --- | --- | --- | --- |
 | Ingest | `./data-refinery ingest ...` | Convert heterogeneous source files into one standardized dataset. | `.csv`, `.json`, `.ndjson`, `.jsonl`, plus optional `.json` run summary |
 | Analysis | `./data-refinery ...` or `./data-refinery analyse ...` | Validate keys, review duplicates, search records, discover schema, and generate reports. | stdout plus optional saved reports and derived artifacts |
-| Rewrite | `./data-refinery rewrite ...` | Preview or apply targeted cleanup rules to JSON-family source files. | Preview summary, logs, backups, and applied changes |
+| Rewrite | `./data-refinery rewrite ...` | Preview or apply targeted cleanup rules to JSON, NDJSON, JSONL, and XML source data. | Preview summary, logs, backups, and applied changes |
+
+### Format matrix
+
+Use this matrix when you need to know which workflow accepts which source
+format today.
+
+| Format | Ingest input | Analysis input | Rewrite input | Notes |
+| --- | --- | --- | --- | --- |
+| CSV | Yes | Yes | No | Rewrite does not mutate tabular files in place. |
+| TSV | Yes | Yes | No | Rewrite does not mutate tabular files in place. |
+| XLSX | Yes | Yes | No | Rewrite does not mutate spreadsheets in place. |
+| XML | Yes | Yes | Yes | Ingest and rewrite use `xmlRecordPath` to treat repeated elements as logical records. |
+| JSON | Yes | Yes | Yes | Ingest reads document-style JSON. Rewrite uses JSON-family mutation rules. |
+| NDJSON | Yes | Yes | Yes | Line-oriented JSON stream. |
+| JSONL | Yes | Yes | Yes | Line-oriented JSON stream. |
 
 ![Overview workflow](assets/flow-overview.svg)
 
@@ -124,10 +139,10 @@ Most teams will normalize first, inspect second, and only then apply cleanup.
 ### Ingest
 
 Ingest is the entry point when your source files do not already share a stable
-shape. It supports first-class CSV, TSV, and JSON inputs, plus XLSX, NDJSON,
-and JSONL. Mapping files can use the legacy `py-file-ingestion`
-filename-keyed format or the newer structured format with exact matches, globs,
-nested paths, defaults, and attribute capture.
+shape. It supports CSV, TSV, XLSX, XML, JSON, NDJSON, and JSONL inputs.
+Mapping files can use either the older filename-keyed format or the newer
+structured format with exact matches, globs, nested paths, defaults, and
+attribute capture.
 
 Supported normalized outputs:
 
@@ -139,6 +154,9 @@ Supported normalized outputs:
 Use `.csv` only when every normalized row stays scalar. If the normalized row
 contains nested data such as the unified `Attributes` array, the run fails with
 an error that tells you to use `.json`, `.ndjson`, or `.jsonl`.
+
+For XML inputs, set `xmlRecordPath` in the matching mapping rule when repeated
+elements should be treated as logical records.
 
 First useful ingest commands:
 
@@ -153,9 +171,10 @@ The normalized schema preserves the older ingestion contract:
 
 ### Analysis
 
-Analysis is the default command surface. Use it when your data is already in a
-JSON-family format and you need to understand the dataset before you decide
-whether anything should change.
+Analysis is the default command surface. Use it when you need to understand a
+structured dataset before you decide whether anything should change. It can
+inspect tabular files, XML documents, and JSON-family data through the same
+reader layer.
 
 Analysis supports:
 
@@ -166,21 +185,35 @@ Analysis supports:
 - Derived cleanup artifacts
 - Local duplicate purge when you explicitly enable it
 
+Supported analysis inputs:
+
+- `.csv`
+- `.tsv`
+- `.xlsx`
+- `.xml`
+- `.json`
+- `.ndjson`
+- `.jsonl`
+
 First useful analysis commands:
 
 - `./data-refinery -validate -path ./test_data -key id`
 - `./data-refinery -headless -path ./test_data -key id -output json`
 - `./data-refinery --app-config examples/test_full_advanced.json -headless`
 
-Analysis always prints to stdout. When you enable saved outputs, it can also
-write text reports, JSON reports, search results, schema exports, and derived
-cleanup artifacts under `logPath`.
+Headless and validation runs print reports to stdout. TUI runs render the
+interactive review in the terminal. When you enable saved outputs, analysis can
+also write text reports, JSON reports, search results, schema exports, and
+derived cleanup artifacts under `logPath`.
+
+Use `-xml-record-path` when repeated XML elements should be treated as logical
+records. Without it, analysis treats the whole XML document as one record.
 
 ### Rewrite
 
-Rewrite is the mutation stage. It operates on JSON, NDJSON, and JSONL inputs
-and is designed around a preview-first path so you can confirm scope before
-any apply-mode run writes changes.
+Rewrite is the mutation stage. It operates on JSON, NDJSON, JSONL, and XML
+inputs and is designed around a preview-first path so you can confirm scope
+before any apply-mode run writes changes.
 
 Rewrite supports:
 
@@ -189,6 +222,10 @@ Rewrite supports:
 - recursively updating values by key
 - filtering delete or update operations by state or ID
 - loading long target lists from CSV files
+
+For XML rewrites, set `-xml-record-path` so repeated elements are treated as
+logical records. Rewrite mutates the XML structure and then serializes the
+document back to XML in apply mode.
 
 First useful rewrite commands:
 
@@ -207,22 +244,24 @@ happen without mutating the source dataset.
 ## What it can and can't do
 
 Data Refinery is intentionally narrow. It focuses on normalization, inspection,
-and JSON-family cleanup workflows rather than trying to be a general-purpose
-ETL platform.
+and targeted cleanup workflows rather than trying to be a general-purpose ETL
+platform.
 
 ### What it can do today
 
 Data Refinery can do these jobs today:
 
-- normalize CSV, TSV, XLSX, JSON, NDJSON, and JSONL inputs into one standard
+- normalize CSV, TSV, XLSX, XML, JSON, NDJSON, and JSONL inputs into one standard
   schema
 - write normalized output locally or to `gs://...`
 - export normalized datasets as `.csv`, `.json`, `.ndjson`, or `.jsonl`
-- preserve the older `py-file-ingestion` schema and legacy mapping format
-- analyse JSON, NDJSON, and JSONL datasets in TUI, headless, or validation mode
+- preserve the existing unified schema and the older filename-keyed mapping
+  format
+- analyse CSV, TSV, XLSX, XML, JSON, NDJSON, and JSONL datasets in TUI,
+  headless, or validation mode
 - generate reports, search results, schema outputs, and derived cleanup artifacts
-- preview and apply rewrite rules to JSON-family files with backup-aware apply
-  mode
+- preview and apply rewrite rules to JSON-family files and XML documents with
+  backup-aware apply mode
 
 ### What it can't do yet
 
@@ -344,6 +383,7 @@ Use these examples when you want the shortest route to a specific workflow.
 | [`examples/test_full_advanced.json`](examples/test_full_advanced.json) | Run a compact advanced analysis walkthrough. |
 | [`examples/rewrite-delete-config.json`](examples/rewrite-delete-config.json) | Preview or apply row deletion from a portable rewrite config. |
 | [`examples/rewrite-update-config.json`](examples/rewrite-update-config.json) | Preview or apply recursive updates with backups. |
+| [`examples/smoke/`](examples/smoke/) | Inspect the checked-in fake dataset that powers the CLI smoke suite. |
 
 ### Complex normalization example
 
@@ -373,6 +413,8 @@ deeper when you need more detail:
 - [`examples/ADVANCED_FEATURES.md`](examples/ADVANCED_FEATURES.md) for advanced analysis
 - [`examples/REWRITE_WORKFLOWS.md`](examples/REWRITE_WORKFLOWS.md) for
   preview-first rewrite jobs
+- [`tests/cli_smoke.bats`](tests/cli_smoke.bats) for the end-to-end CLI smoke
+  matrix
 
 <br>
 
@@ -435,6 +477,9 @@ pre-push-style checks.
 | --- | --- |
 | `mise install` | Install Go, Python, and the D2 CLI declared in `mise.toml`. |
 | `mise run build` | Build the `./data-refinery` binary. |
+| `mise run tests:go` | Run the Go test suite. |
+| `mise run tests:bats` | Run the checked-in CLI smoke suite against real fake data. |
+| `mise run cli:smoke` | Run the same BATS smoke suite through the public task alias. |
 | `mise run test` | Run the Go test suite. |
 | `mise run go:fmt` | Apply Go formatters defined in `.golangci.yaml`. |
 | `mise run go:fmt:check` | Check Go formatting without rewriting files. |
@@ -454,6 +499,12 @@ and [`scripts/render_diagrams.sh`](scripts/render_diagrams.sh). Generated files
 live in [`assets/`](assets/). The hook configuration lives in
 [`hk.pkl`](hk.pkl), and the Go lint and formatter policy lives in
 [`.golangci.yaml`](.golangci.yaml).
+
+The checked-in CLI smoke corpus lives under
+[`examples/smoke/`](examples/smoke/), and the BATS entrypoint lives in
+[`tests/cli_smoke.bats`](tests/cli_smoke.bats). `hk` runs the BATS smoke suite
+on pre-commit, and the full verifier profile runs formatting checks, lint, Go
+tests, BATS, and script validation.
 
 <br>
 

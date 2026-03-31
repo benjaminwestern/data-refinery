@@ -1,0 +1,12 @@
+{
+  "path": "./examples/smoke/analysis/duplicate_rows.jsonl",
+  "key": "id",
+  "workers": 1,
+  "logPath": ".tmp/smoke-cli/analysis-rows",
+  "approvedOutputRoot": ".tmp/smoke-cli",
+  "checkKey": false,
+  "checkRow": true,
+  "showFolderBreakdown": false,
+  "enableTxtOutput": false,
+  "enableJsonOutput": true
+}

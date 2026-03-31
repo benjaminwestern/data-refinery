@@ -1,0 +1,3 @@
+{"id":"smoke-order-1","customer_id":"cust-123","state":"open","line_items":[{"item_id":"sku-keep","qty":1},{"item_id":"sku-remove","qty":2}]}
+{"id":"smoke-order-2","customer_id":"cust-delete","state":"open","line_items":[{"item_id":"sku-keep","qty":3}]}
+{"id":"smoke-order-3","customer_id":"cust-789","state":"closed","line_items":[{"item_id":"sku-archive","qty":1}]}

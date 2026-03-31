@@ -13,6 +13,27 @@ local goFiles = List(
     "**/.golangci.yaml",
 )
 
+local cliSmokeFiles = List(
+    "tests/**/*.bats",
+    "**/tests/**/*.bats",
+    "examples/smoke/**/*",
+    "**/examples/smoke/**/*",
+    "scripts/smoke_cli.sh",
+    "**/scripts/smoke_cli.sh",
+    "scripts/generate_smoke_xlsx.py",
+    "**/scripts/generate_smoke_xlsx.py",
+    "cmd/**/*.go",
+    "**/cmd/**/*.go",
+    "internal/**/*.go",
+    "**/internal/**/*.go",
+    "go.mod",
+    "**/go.mod",
+    "go.sum",
+    "**/go.sum",
+    "mise.toml",
+    "**/mise.toml",
+)
+
 local formatters = new Mapping<String, Step> {
     ["hk_config"] {
         glob = List(
@@ -29,6 +50,33 @@ local formatters = new Mapping<String, Step> {
         workspace_indicator = workspaceIndicator
         check = "cd {{workspace}} && mise run go:fmt:check"
         fix = "cd {{workspace}} && mise run go:fmt"
+        batch = false
+    }
+}
+
+local preCommitSteps = new Mapping<String, Step> {
+    ["hk_config"] {
+        glob = List(
+            "hk.pkl",
+            "**/hk.pkl",
+        )
+        workspace_indicator = workspaceIndicator
+        check = "cd {{workspace}} && hk validate"
+        batch = false
+    }
+
+    ["go_format"] {
+        glob = goFiles
+        workspace_indicator = workspaceIndicator
+        check = "cd {{workspace}} && mise run go:fmt:check"
+        fix = "cd {{workspace}} && mise run go:fmt"
+        batch = false
+    }
+
+    ["bats_tests"] {
+        glob = cliSmokeFiles
+        workspace_indicator = workspaceIndicator
+        check = "cd {{workspace}} && mise run tests:bats"
         batch = false
     }
 }
@@ -71,7 +119,14 @@ local verifiers = new Mapping<String, Step> {
     ["go_tests"] {
         glob = goFiles
         workspace_indicator = workspaceIndicator
-        check = "cd {{workspace}} && mise run go:test"
+        check = "cd {{workspace}} && mise run tests:go"
+        batch = false
+    }
+
+    ["bats_tests"] {
+        glob = cliSmokeFiles
+        workspace_indicator = workspaceIndicator
+        check = "cd {{workspace}} && mise run tests:bats"
         batch = false
     }
 
@@ -92,7 +147,7 @@ hooks {
     ["pre-commit"] {
         fix = true
         stash = "git"
-        steps = formatters
+        steps = preCommitSteps
     }
     ["pre-push"] {
         steps = verifiers

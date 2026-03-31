@@ -1,0 +1,17 @@
+<customers>
+  <customer status="active">
+    <id>xml-smoke-001</id>
+    <name>Helena Ward</name>
+    <email>helena@example.com</email>
+  </customer>
+  <customer status="pending">
+    <id>xml-smoke-001</id>
+    <name>Isaac Poe</name>
+    <email>isaac@example.com</email>
+  </customer>
+  <customer status="active">
+    <id>xml-smoke-002</id>
+    <name>Jules Hart</name>
+    <email>jules@example.com</email>
+  </customer>
+</customers>

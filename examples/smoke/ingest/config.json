@@ -1,0 +1,11 @@
+{
+  "paths": [
+    "./fixtures"
+  ],
+  "workers": 2,
+  "logPath": "../../../logs/smoke-cli/ingest",
+  "outputPath": "../../../logs/smoke-cli/ingest/unified-contacts.ndjson",
+  "mappingFile": "./mappings.yaml",
+  "requireMappings": true,
+  "statsOutputPath": "../../../logs/smoke-cli/ingest/summary.json"
+}

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<contacts>
+  <contact>
+    <member>
+      <identifier>ing-xml-1</identifier>
+    </member>
+    <profile>
+      <first_name>Grace</first_name>
+      <last_name>Hopper</last_name>
+      <email>grace@example.com</email>
+    </profile>
+    <contact_details>
+      <mobile>0400000009</mobile>
+      <postcode>3008</postcode>
+    </contact_details>
+    <source>xml-smoke</source>
+    <status>active</status>
+  </contact>
+  <contact>
+    <member>
+      <identifier>ing-xml-2</identifier>
+    </member>
+    <profile>
+      <first_name>Margaret</first_name>
+      <last_name>Hamilton</last_name>
+      <email>margaret@example.com</email>
+    </profile>
+    <contact_details>
+      <mobile>0400000010</mobile>
+      <postcode>3009</postcode>
+    </contact_details>
+    <source>xml-smoke</source>
+    <status>pending</status>
+  </contact>
+</contacts>

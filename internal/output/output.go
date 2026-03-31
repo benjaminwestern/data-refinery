@@ -24,7 +24,8 @@ import (
 // outputManager manages different types of output files and formats.
 type outputManager struct {
 	basePath        string
-	outputFiles     map[string]*os.File
+	outputTargets   map[string]Target
+	outputPaths     map[string]string
 	outputWriters   map[string]*bufio.Writer
 	outputMutex     sync.Mutex
 	searchResults   *search.Results
@@ -39,7 +40,8 @@ type outputManager struct {
 func newOutputManager(basePath string) *outputManager {
 	return &outputManager{
 		basePath:      basePath,
-		outputFiles:   make(map[string]*os.File),
+		outputTargets: make(map[string]Target),
+		outputPaths:   make(map[string]string),
 		outputWriters: make(map[string]*bufio.Writer),
 		timestamp:     time.Now().Format("2006-01-02_15-04-05"),
 	}
@@ -50,16 +52,22 @@ func (om *outputManager) CreateOutputFile(name, extension string) (string, error
 	om.outputMutex.Lock()
 	defer om.outputMutex.Unlock()
 
-	filename := fmt.Sprintf("%s_%s.%s", name, om.timestamp, extension)
-	fullPath := filepath.Join(om.basePath, filename)
+	key := outputFileKey(name, extension)
+	if existingPath, exists := om.outputPaths[key]; exists {
+		return existingPath, nil
+	}
 
-	file, err := createPrivateOutputFile(fullPath)
+	filename := fmt.Sprintf("%s_%s.%s", name, om.timestamp, extension)
+	fullPath := joinOutputPath(om.basePath, filename)
+
+	target, err := NewTarget(context.Background(), fullPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to create output file %s: %w", fullPath, err)
 	}
 
-	om.outputFiles[name] = file
-	om.outputWriters[name] = bufio.NewWriter(file)
+	om.outputTargets[key] = target
+	om.outputPaths[key] = fullPath
+	om.outputWriters[key] = bufio.NewWriter(target)
 
 	return fullPath, nil
 }
@@ -69,30 +77,9 @@ func (om *outputManager) WriteJSONLine(fileNameOrPath string, data any) error {
 	om.outputMutex.Lock()
 	defer om.outputMutex.Unlock()
 
-	// Try to find the writer by key first
-	writer, exists := om.outputWriters[fileNameOrPath]
-	if !exists {
-		// If not found by key, try to extract the key from the file path
-		// The key is the base name without extension and timestamp
-		baseName := filepath.Base(fileNameOrPath)
-
-		// Remove extension
-		nameWithoutExt := strings.TrimSuffix(baseName, filepath.Ext(baseName))
-
-		// Remove timestamp suffix (pattern: _YYYY-MM-DD_HH-MM-SS)
-		parts := strings.Split(nameWithoutExt, "_")
-		if len(parts) >= 3 {
-			// Try to remove the timestamp part (last 3 parts might be timestamp)
-			// Format: name_YYYY-MM-DD_HH-MM-SS
-			keyName := strings.Join(parts[:len(parts)-2], "_")
-			if writer, exists = om.outputWriters[keyName]; !exists {
-				writer, exists = om.outputWriters[parts[0]]
-			}
-		}
-
-		if !exists {
-			return fmt.Errorf("output file %s not found", fileNameOrPath)
-		}
+	writer, err := om.resolveWriter(fileNameOrPath)
+	if err != nil {
+		return err
 	}
 
 	jsonData, err := json.Marshal(data)
@@ -112,13 +99,13 @@ func (om *outputManager) WriteJSONLine(fileNameOrPath string, data any) error {
 }
 
 // WriteString writes a string to the specified output file.
-func (om *outputManager) WriteString(fileName, content string) error {
+func (om *outputManager) WriteString(fileNameOrPath, content string) error {
 	om.outputMutex.Lock()
 	defer om.outputMutex.Unlock()
 
-	writer, exists := om.outputWriters[fileName]
-	if !exists {
-		return fmt.Errorf("output file %s not found", fileName)
+	writer, err := om.resolveWriter(fileNameOrPath)
+	if err != nil {
+		return err
 	}
 
 	if _, err := writer.WriteString(content); err != nil {
@@ -209,25 +196,28 @@ func (om *outputManager) generateAnalysisReports(cfg *config.Config) error {
 	}
 
 	if cfg.EnableTxtOutput {
-		if _, err := om.CreateOutputFile("analysis_summary", "txt"); err != nil {
+		summaryPath, err := om.CreateOutputFile("analysis_summary", "txt")
+		if err != nil {
 			return err
 		}
-		if err := om.WriteString("analysis_summary", om.analysisReport.String(false, cfg.CheckKey, cfg.CheckRow, cfg.ShowFolderBreakdown)); err != nil {
+		if err := om.WriteString(summaryPath, om.analysisReport.String(false, cfg.CheckKey, cfg.CheckRow, cfg.ShowFolderBreakdown)); err != nil {
 			return err
 		}
-		if _, err := om.CreateOutputFile("analysis_details", "txt"); err != nil {
+		detailsPath, err := om.CreateOutputFile("analysis_details", "txt")
+		if err != nil {
 			return err
 		}
-		if err := om.WriteString("analysis_details", om.analysisReport.String(true, cfg.CheckKey, cfg.CheckRow, cfg.ShowFolderBreakdown)); err != nil {
+		if err := om.WriteString(detailsPath, om.analysisReport.String(true, cfg.CheckKey, cfg.CheckRow, cfg.ShowFolderBreakdown)); err != nil {
 			return err
 		}
 	}
 
 	if cfg.EnableJSONOutput {
-		if _, err := om.CreateOutputFile("analysis_report", "json"); err != nil {
+		reportPath, err := om.CreateOutputFile("analysis_report", "json")
+		if err != nil {
 			return err
 		}
-		if err := om.WriteJSONLine("analysis_report", om.analysisReport); err != nil {
+		if err := om.WriteJSONLine(reportPath, om.analysisReport); err != nil {
 			return err
 		}
 	}
@@ -238,12 +228,12 @@ func (om *outputManager) generateAnalysisReports(cfg *config.Config) error {
 // generateSearchResults generates search results output.
 func (om *outputManager) generateSearchResults() error {
 	// Generate JSON search results
-	_, err := om.CreateOutputFile("search_results", "json")
+	searchResultsPath, err := om.CreateOutputFile("search_results", "json")
 	if err != nil {
 		return err
 	}
 
-	if err := om.WriteJSONLine("search_results", om.searchResults); err != nil {
+	if err := om.WriteJSONLine(searchResultsPath, om.searchResults); err != nil {
 		return err
 	}
 
@@ -257,7 +247,7 @@ func (om *outputManager) generateSearchResults() error {
 			}
 
 			for _, result := range results {
-				if err := om.WriteJSONLine(fmt.Sprintf("search_target_%s", safeTargetName), result); err != nil {
+				if err := om.WriteJSONLine(targetPath, result); err != nil {
 					return err
 				}
 			}
@@ -283,7 +273,7 @@ func (om *outputManager) generateSchemaReports(cfg config.SchemaDiscoveryConfig)
 			if err != nil {
 				return err
 			}
-			if err := om.WriteJSONLine("schema_report", schemaReport); err != nil {
+			if err := om.WriteJSONLine(path, schemaReport); err != nil {
 				return err
 			}
 			fmt.Printf("Generated schema report: %s\n", path)
@@ -293,7 +283,7 @@ func (om *outputManager) generateSchemaReports(cfg config.SchemaDiscoveryConfig)
 			if err != nil {
 				return err
 			}
-			if err := om.generateSchemaCSVInternal(schemaReport, "schema_report"); err != nil {
+			if err := om.generateSchemaCSVInternal(schemaReport, path); err != nil {
 				return err
 			}
 			fmt.Printf("Generated schema CSV: %s\n", path)
@@ -303,7 +293,7 @@ func (om *outputManager) generateSchemaReports(cfg config.SchemaDiscoveryConfig)
 			if err != nil {
 				return err
 			}
-			if err := om.generateSchemaYAMLInternal(schemaReport, "schema_report"); err != nil {
+			if err := om.generateSchemaYAMLInternal(schemaReport, path); err != nil {
 				return err
 			}
 			fmt.Printf("Generated schema YAML: %s\n", path)
@@ -496,7 +486,7 @@ func (om *outputManager) generateDeletionReports() error {
 		return err
 	}
 
-	if err := om.WriteJSONLine("deletion_stats", om.deletionResults); err != nil {
+	if err := om.WriteJSONLine(path, om.deletionResults); err != nil {
 		return err
 	}
 
@@ -509,7 +499,7 @@ func (om *outputManager) generateDeletionReports() error {
 	}
 
 	summary := om.generateDeletionSummary()
-	if err := om.WriteString("deletion_summary", summary); err != nil {
+	if err := om.WriteString(summaryPath, summary); err != nil {
 		return err
 	}
 
@@ -619,20 +609,18 @@ func (om *outputManager) Close() error {
 		}
 	}
 
-	// Close all files
-	for name, file := range om.outputFiles {
-		if file != nil {
-			if err := file.Close(); err != nil {
-				// Check if it's already closed
-				if !strings.Contains(err.Error(), "file already closed") {
-					errors = append(errors, fmt.Errorf("failed to close %s: %w", name, err))
-				}
+	// Commit all targets
+	for name, target := range om.outputTargets {
+		if target != nil {
+			if err := target.Commit(context.Background()); err != nil {
+				errors = append(errors, fmt.Errorf("failed to commit %s: %w", name, err))
 			}
 		}
 	}
 
-	// Clear maps to prevent double-closing
-	om.outputFiles = make(map[string]*os.File)
+	// Clear maps to prevent double-finalization
+	om.outputTargets = make(map[string]Target)
+	om.outputPaths = make(map[string]string)
 	om.outputWriters = make(map[string]*bufio.Writer)
 
 	if len(errors) > 0 {
@@ -794,11 +782,11 @@ func (om *outputManager) CreateDirectory(path string) error {
 
 // WriteMetadata writes metadata to a metadata file.
 func (om *outputManager) WriteMetadata(metadata map[string]any) error {
-	_, err := om.CreateOutputFile("metadata", "json")
+	metadataPath, err := om.CreateOutputFile("metadata", "json")
 	if err != nil {
 		return err
 	}
-	err = om.WriteJSONLine("metadata", metadata)
+	err = om.WriteJSONLine(metadataPath, metadata)
 	if err != nil {
 		return err
 	}
@@ -973,7 +961,7 @@ type Report struct {
 // GetOutputPath returns the full path for a given output file name.
 func (om *outputManager) GetOutputPath(name, extension string) string {
 	filename := fmt.Sprintf("%s_%s.%s", name, om.timestamp, extension)
-	return filepath.Join(om.basePath, filename)
+	return joinOutputPath(om.basePath, filename)
 }
 
 // ListOutputFiles returns a list of all created output files.
@@ -981,8 +969,8 @@ func (om *outputManager) ListOutputFiles() []string {
 	om.outputMutex.Lock()
 	defer om.outputMutex.Unlock()
 
-	files := make([]string, 0, len(om.outputFiles))
-	for name := range om.outputFiles {
+	files := make([]string, 0, len(om.outputTargets))
+	for name := range om.outputTargets {
 		files = append(files, name)
 	}
 
@@ -995,11 +983,59 @@ func (om *outputManager) GetOutputStats() map[string]os.FileInfo {
 	defer om.outputMutex.Unlock()
 
 	stats := make(map[string]os.FileInfo)
-	for name, file := range om.outputFiles {
-		if info, err := file.Stat(); err == nil {
+	for name, path := range om.outputPaths {
+		if info, err := os.Stat(path); err == nil {
 			stats[name] = info
 		}
 	}
 
 	return stats
+}
+
+func joinOutputPath(basePath, filename string) string {
+	trimmedBase := strings.TrimSpace(basePath)
+	if strings.HasPrefix(trimmedBase, "gs://") {
+		return strings.TrimRight(trimmedBase, "/") + "/" + filename
+	}
+	return filepath.Join(trimmedBase, filename)
+}
+
+func outputFileKey(name, extension string) string {
+	return name + "." + strings.TrimPrefix(extension, ".")
+}
+
+func (om *outputManager) resolveWriter(nameOrPath string) (*bufio.Writer, error) {
+	if writer, exists := om.outputWriters[nameOrPath]; exists {
+		return writer, nil
+	}
+
+	for key, path := range om.outputPaths {
+		if path == nameOrPath {
+			writer, exists := om.outputWriters[key]
+			if !exists {
+				return nil, fmt.Errorf("output file %s not found", nameOrPath)
+			}
+			return writer, nil
+		}
+	}
+
+	var (
+		match      *bufio.Writer
+		matchCount int
+	)
+	for key, writer := range om.outputWriters {
+		if strings.HasPrefix(key, nameOrPath+".") {
+			match = writer
+			matchCount++
+		}
+	}
+
+	switch matchCount {
+	case 1:
+		return match, nil
+	case 0:
+		return nil, fmt.Errorf("output file %s not found", nameOrPath)
+	default:
+		return nil, fmt.Errorf("output file %s is ambiguous", nameOrPath)
+	}
 }

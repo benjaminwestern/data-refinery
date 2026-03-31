@@ -20,6 +20,7 @@ const (
 type Config struct {
 	Path                        string `json:"path"`
 	Key                         string `json:"key"`
+	XMLRecordPath               string `json:"xmlRecordPath,omitempty"`
 	Workers                     int    `json:"workers"`
 	LogPath                     string `json:"logPath"`
 	ApprovedOutputRoot          string `json:"approvedOutputRoot,omitempty"`
@@ -667,6 +668,9 @@ func (c *Config) Merge(other *Config) {
 	}
 	if other.Key != "" {
 		c.Key = other.Key
+	}
+	if other.XMLRecordPath != "" {
+		c.XMLRecordPath = other.XMLRecordPath
 	}
 	if other.Workers != 0 {
 		c.Workers = other.Workers

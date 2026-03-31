@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<contacts>
+  <contact>
+    <identifier>ingest-007</identifier>
+    <first_name>Gwen</first_name>
+    <last_name>Rivers</last_name>
+    <email>gwen.ingest@example.com</email>
+    <mobile>0400000007</mobile>
+    <postcode>3006</postcode>
+    <status>active</status>
+    <source>smoke-xml</source>
+  </contact>
+  <contact>
+    <identifier>ingest-008</identifier>
+    <first_name>Hugo</first_name>
+    <last_name>Stone</last_name>
+    <email>hugo.ingest@example.com</email>
+    <mobile>0400000008</mobile>
+    <postcode>3007</postcode>
+    <status>pending</status>
+    <source>smoke-xml</source>
+  </contact>
+</contacts>

@@ -1,0 +1,17 @@
+{
+  "paths": [
+    "./ingest/contacts.csv",
+    "./ingest/contacts.tsv",
+    "./ingest/contacts.xlsx",
+    "./ingest/contacts.xml",
+    "./ingest/contacts.json",
+    "./ingest/contacts.jsonl"
+  ],
+  "workers": 2,
+  "logPath": "../../.tmp/smoke-cli/ingest/logs",
+  "approvedOutputRoot": "../../.tmp/smoke-cli",
+  "outputPath": "../../.tmp/smoke-cli/ingest/unified.ndjson",
+  "mappingFile": "./ingest-mappings.yaml",
+  "requireMappings": true,
+  "statsOutputPath": "../../.tmp/smoke-cli/ingest/summary.json"
+}

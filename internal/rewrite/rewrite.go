@@ -1,4 +1,4 @@
-// Package rewrite provides streamed JSON/NDJSON rewrite workflows.
+// Package rewrite provides streamed structured-data rewrite workflows.
 package rewrite
 
 import (
@@ -19,6 +19,7 @@ import (
 
 	"cloud.google.com/go/storage"
 
+	"github.com/benjaminwestern/data-refinery/internal/input"
 	"github.com/benjaminwestern/data-refinery/internal/safety"
 	"github.com/benjaminwestern/data-refinery/internal/source"
 )
@@ -44,6 +45,7 @@ type Config struct {
 	Workers            int
 	LogPath            string
 	ApprovedOutputRoot string
+	XMLRecordPath      string
 	Mode               Mode
 	BackupDir          string
 	BufferSize         int
@@ -107,6 +109,7 @@ type lineResult struct {
 }
 
 type rewriteTarget interface {
+	Write([]byte) error
 	WriteLine([]byte) error
 	Commit(context.Context) error
 	Abort(context.Context) error
@@ -136,6 +139,11 @@ type gcsTarget struct {
 func (c *Config) Validate() error {
 	if len(c.Paths) == 0 {
 		return fmt.Errorf("at least one -path is required")
+	}
+	for _, path := range c.Paths {
+		if input.DetectFormatFromPath(path) == input.FormatXML && strings.TrimSpace(c.XMLRecordPath) == "" {
+			return fmt.Errorf("XML rewrites require XMLRecordPath")
+		}
 	}
 	if c.Workers < 1 {
 		return fmt.Errorf("workers must be at least 1")
@@ -186,7 +194,7 @@ func Run(ctx context.Context, cfg *Config) (*Summary, error) {
 		return nil, err
 	}
 
-	sources, err := source.DiscoverAll(ctx, cfg.Paths)
+	sources, err := source.DiscoverAllWithOptions(ctx, cfg.Paths, source.DefaultRewriteDiscoveryOptions())
 	if err != nil {
 		return nil, fmt.Errorf("discover rewrite sources: %w", err)
 	}
@@ -281,7 +289,24 @@ func compileConfig(cfg *Config) *compiledConfig {
 }
 
 func processSource(ctx context.Context, cfg *compiledConfig, src source.InputSource, counters *counters) error {
-	reader, err := src.Open(ctx)
+	format := input.DetectFormatFromPath(src.Path())
+	opts := []input.ReaderOption{
+		input.WithScanBuffer(cfg.bufferSize, cfg.maxBufferSize),
+	}
+	switch format {
+	case input.FormatXML:
+		return processXMLSource(ctx, cfg, src, counters)
+	case input.FormatJSON:
+		opts = append(opts, input.WithJSONMode(input.JSONModeLineStream), input.WithDecodeErrorsAsRecords())
+	case input.FormatNDJSON, input.FormatJSONL:
+		opts = append(opts, input.WithDecodeErrorsAsRecords())
+	case input.FormatCSV, input.FormatTSV, input.FormatXLSX:
+		return fmt.Errorf("rewrite does not support %s input for %s", format, src.Path())
+	case input.FormatUnknown:
+		return fmt.Errorf("unsupported rewrite input format for %s", src.Path())
+	}
+
+	reader, err := input.NewReaderFromSource(ctx, src, opts...)
 	if err != nil {
 		return fmt.Errorf("open %s: %w", src.Path(), err)
 	}
@@ -306,19 +331,24 @@ func processSource(ctx context.Context, cfg *compiledConfig, src source.InputSou
 		}()
 	}
 
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 0, cfg.bufferSize), cfg.maxBufferSize)
-
 	fileModified := false
 
-	for scanner.Scan() {
+	for {
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("rewrite canceled for %s: %w", src.Path(), ctx.Err())
 		default:
 		}
 
-		line := append([]byte(nil), scanner.Bytes()...)
+		record, err := reader.Next(ctx)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("read %s: %w", src.Path(), err)
+		}
+
+		line := append([]byte(nil), record.Raw...)
 		counters.linesRead.Add(1)
 
 		result, lineErr := processLine(line, cfg)
@@ -346,8 +376,100 @@ func processSource(ctx context.Context, cfg *compiledConfig, src source.InputSou
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("scan %s: %w", src.Path(), err)
+	if err := finalizeRewriteTarget(ctx, target, src.Path(), fileModified); err != nil {
+		return err
+	}
+	target = nil
+
+	counters.filesProcessed.Add(1)
+	if fileModified {
+		counters.filesModified.Add(1)
+	}
+
+	return nil
+}
+
+type recordResult struct {
+	Data     map[string]any
+	Keep     bool
+	Deleted  bool
+	Modified bool
+	Updated  bool
+}
+
+func processXMLSource(ctx context.Context, cfg *compiledConfig, src source.InputSource, counters *counters) error {
+	if strings.TrimSpace(cfg.config.XMLRecordPath) == "" {
+		return fmt.Errorf("rewrite XML input %s requires XMLRecordPath", src.Path())
+	}
+
+	reader, err := src.Open(ctx)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", src.Path(), err)
+	}
+	defer func() {
+		if closeErr := reader.Close(); closeErr != nil {
+			log.Printf("failed to close source %s: %v", src.Path(), closeErr)
+		}
+	}()
+
+	document, err := input.LoadXMLDocument(src.Path(), reader)
+	if err != nil {
+		return fmt.Errorf("open XML document %s: %w", src.Path(), err)
+	}
+
+	records, err := document.Records(cfg.config.XMLRecordPath)
+	if err != nil {
+		return fmt.Errorf("read XML records for %s: %w", src.Path(), err)
+	}
+
+	var target rewriteTarget
+	if cfg.config.Mode == ModeApply {
+		target, err = newRewriteTarget(ctx, src, cfg.backupPath)
+		if err != nil {
+			return fmt.Errorf("prepare target for %s: %w", src.Path(), err)
+		}
+		defer func() {
+			if target != nil {
+				if abortErr := target.Abort(ctx); abortErr != nil {
+					log.Printf("failed to abort rewrite target for %s: %v", src.Path(), abortErr)
+				}
+			}
+		}()
+	}
+
+	results := make([]recordResult, 0, len(records))
+	fileModified := false
+
+	for _, record := range records {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("rewrite canceled for %s: %w", src.Path(), ctx.Err())
+		default:
+		}
+
+		counters.linesRead.Add(1)
+
+		dataCopy := cloneMap(record.Data)
+		result := processRecordData(dataCopy, cfg)
+
+		if result.Deleted {
+			counters.linesDeleted.Add(1)
+		}
+		if result.Modified {
+			counters.linesModified.Add(1)
+		}
+		if result.Updated {
+			counters.linesUpdated.Add(1)
+		}
+		if result.Deleted || result.Modified || result.Updated {
+			fileModified = true
+		}
+
+		results = append(results, result)
+	}
+
+	if err := writeXMLRewriteResult(target, document, cfg.config.XMLRecordPath, src.Path(), results, fileModified); err != nil {
+		return err
 	}
 
 	if err := finalizeRewriteTarget(ctx, target, src.Path(), fileModified); err != nil {
@@ -373,8 +495,30 @@ func processLine(line []byte, cfg *compiledConfig) (lineResult, error) {
 		return lineResult{Output: line, Keep: true}, fmt.Errorf("decode rewrite line: %w", err)
 	}
 
-	if shouldMatchDelete(obj, cfg.config.TopLevelKey, cfg.topLevelValues, cfg.config.StateKey, cfg.config.StateValue) {
+	result := processRecordData(obj, cfg)
+	if result.Keep && !result.Modified && !result.Updated {
+		return lineResult{Output: line, Keep: true}, nil
+	}
+	if !result.Keep {
 		return lineResult{Keep: false, Deleted: true}, nil
+	}
+
+	output, err := json.Marshal(result.Data)
+	if err != nil {
+		return lineResult{Output: line, Keep: true}, fmt.Errorf("encode rewritten line: %w", err)
+	}
+
+	return lineResult{
+		Output:   output,
+		Keep:     result.Keep,
+		Modified: result.Modified,
+		Updated:  result.Updated,
+	}, nil
+}
+
+func processRecordData(obj map[string]any, cfg *compiledConfig) recordResult {
+	if shouldMatchDelete(obj, cfg.config.TopLevelKey, cfg.topLevelValues, cfg.config.StateKey, cfg.config.StateValue) {
+		return recordResult{Data: obj, Keep: false, Deleted: true}
 	}
 
 	modified := applyArrayDeletion(obj, cfg)
@@ -384,21 +528,12 @@ func processLine(line []byte, cfg *compiledConfig) (lineResult, error) {
 		updated = updateInObject(obj, cfg.config.UpdateKey, cfg.config.UpdateOldValue, cfg.config.UpdateNewValue)
 	}
 
-	if !modified && !updated {
-		return lineResult{Output: line, Keep: true}, nil
-	}
-
-	output, err := json.Marshal(obj)
-	if err != nil {
-		return lineResult{Output: line, Keep: true}, fmt.Errorf("encode rewritten line: %w", err)
-	}
-
-	return lineResult{
-		Output:   output,
+	return recordResult{
+		Data:     obj,
 		Keep:     true,
 		Modified: modified,
 		Updated:  updated,
-	}, nil
+	}
 }
 
 func finalizeRewriteTarget(ctx context.Context, target rewriteTarget, srcPath string, fileModified bool) error {
@@ -420,6 +555,44 @@ func finalizeRewriteTarget(ctx context.Context, target rewriteTarget, srcPath st
 	return nil
 }
 
+func writeXMLRewriteResult(
+	target rewriteTarget,
+	document *input.XMLDocument,
+	recordPath, srcPath string,
+	results []recordResult,
+	fileModified bool,
+) error {
+	if target == nil || !fileModified {
+		return nil
+	}
+
+	for index := len(results) - 1; index >= 0; index-- {
+		result := results[index]
+		if !result.Keep {
+			if err := document.DeleteRecord(recordPath, index); err != nil {
+				return fmt.Errorf("delete XML record %d in %s: %w", index, srcPath, err)
+			}
+			continue
+		}
+		if !result.Modified && !result.Updated {
+			continue
+		}
+		if err := document.ReplaceRecord(recordPath, index, result.Data); err != nil {
+			return fmt.Errorf("replace XML record %d in %s: %w", index, srcPath, err)
+		}
+	}
+
+	output, err := document.Marshal()
+	if err != nil {
+		return fmt.Errorf("serialize rewritten XML for %s: %w", srcPath, err)
+	}
+	if err := target.Write(output); err != nil {
+		return fmt.Errorf("write rewritten XML for %s: %w", srcPath, err)
+	}
+
+	return nil
+}
+
 func applyArrayDeletion(obj map[string]any, cfg *compiledConfig) bool {
 	if cfg.config.ArrayKey == "" || cfg.config.ArrayDeleteKey == "" || len(cfg.arrayDeleteVals) == 0 {
 		return false
@@ -430,23 +603,61 @@ func applyArrayDeletion(obj map[string]any, cfg *compiledConfig) bool {
 		return false
 	}
 
-	array, ok := arrayVal.([]any)
-	if !ok {
+	switch typed := arrayVal.(type) {
+	case []any:
+		filtered, modified := filterArrayItems(
+			typed,
+			cfg.config.ArrayDeleteKey,
+			cfg.arrayDeleteVals,
+			cfg.config.StateKey,
+			cfg.config.StateValue,
+		)
+		if modified {
+			obj[cfg.config.ArrayKey] = filtered
+		}
+		return modified
+	case map[string]any:
+		childKey, items, ok := extractContainerItems(typed)
+		if !ok {
+			return false
+		}
+		filtered, modified := filterArrayItems(
+			items,
+			cfg.config.ArrayDeleteKey,
+			cfg.arrayDeleteVals,
+			cfg.config.StateKey,
+			cfg.config.StateValue,
+		)
+		if !modified {
+			return false
+		}
+		switch len(filtered) {
+		case 0:
+			delete(typed, childKey)
+		case 1:
+			typed[childKey] = filtered[0]
+		default:
+			typed[childKey] = filtered
+		}
+		return true
+	default:
 		return false
 	}
+}
 
-	filtered, modified := filterArrayItems(
-		array,
-		cfg.config.ArrayDeleteKey,
-		cfg.arrayDeleteVals,
-		cfg.config.StateKey,
-		cfg.config.StateValue,
-	)
-	if modified {
-		obj[cfg.config.ArrayKey] = filtered
+func extractContainerItems(container map[string]any) (string, []any, bool) {
+	for key, value := range container {
+		if strings.HasPrefix(key, "@") || key == "#text" || key == "#content" {
+			continue
+		}
+		switch typed := value.(type) {
+		case []any:
+			return key, typed, true
+		default:
+			return key, []any{typed}, true
+		}
 	}
-
-	return modified
+	return "", nil, false
 }
 
 func filterArrayItems(array []any, deleteKey string, deleteValues map[string]struct{}, stateKey, stateValue string) ([]any, bool) {
@@ -563,6 +774,32 @@ func convertValue(newValue string, original any) any {
 	return newValue
 }
 
+func cloneMap(input map[string]any) map[string]any {
+	if input == nil {
+		return nil
+	}
+	cloned := make(map[string]any, len(input))
+	for key, value := range input {
+		cloned[key] = cloneValue(value)
+	}
+	return cloned
+}
+
+func cloneValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneMap(typed)
+	case []any:
+		cloned := make([]any, len(typed))
+		for index, item := range typed {
+			cloned[index] = cloneValue(item)
+		}
+		return cloned
+	default:
+		return typed
+	}
+}
+
 // ParseValuesInput expands a comma-separated string or single-column CSV file
 // into a list of string values.
 func ParseValuesInput(input string) ([]string, error) {
@@ -677,14 +914,32 @@ func newLocalTarget(src source.InputSource, backupPath string) (*localTarget, er
 	}, nil
 }
 
-func (t *localTarget) WriteLine(line []byte) error {
-	if _, err := t.writer.Write(line); err != nil {
+func (t *localTarget) Write(data []byte) error {
+	if _, err := t.writer.Write(data); err != nil {
 		return fmt.Errorf("write temp data for %s: %w", t.src.Path(), err)
 	}
-	if err := t.writer.WriteByte('\n'); err != nil {
-		return fmt.Errorf("write temp newline for %s: %w", t.src.Path(), err)
+	return nil
+}
+
+func (t *gcsTarget) Write(data []byte) error {
+	if _, err := t.writer.Write(data); err != nil {
+		return fmt.Errorf("write temp GCS data for %s: %w", t.src.Path(), err)
 	}
 	return nil
+}
+
+func (t *localTarget) WriteLine(line []byte) error {
+	if err := t.Write(line); err != nil {
+		return err
+	}
+	return t.Write([]byte{'\n'})
+}
+
+func (t *gcsTarget) WriteLine(line []byte) error {
+	if err := t.Write(line); err != nil {
+		return err
+	}
+	return t.Write([]byte{'\n'})
 }
 
 func (t *localTarget) Commit(ctx context.Context) error {
@@ -761,18 +1016,6 @@ func newGCSTarget(ctx context.Context, src source.InputSource, backupPath string
 		tempObject: tempObject,
 		writer:     writer,
 	}, nil
-}
-
-func (t *gcsTarget) WriteLine(line []byte) error {
-	if _, err := t.writer.Write(line); err != nil {
-		return fmt.Errorf("write temp GCS data for %s: %w", t.src.Path(), err)
-	}
-	_, err := t.writer.Write([]byte("\n"))
-	if err != nil {
-		return fmt.Errorf("write temp GCS newline for %s: %w", t.src.Path(), err)
-	}
-
-	return nil
 }
 
 func (t *gcsTarget) Commit(ctx context.Context) error {
@@ -903,6 +1146,8 @@ func parseGCSPath(gcsPath string) (string, string, error) {
 func detectContentType(path string) string {
 	lower := strings.ToLower(path)
 	switch {
+	case strings.HasSuffix(lower, ".xml"):
+		return "application/xml"
 	case strings.HasSuffix(lower, ".ndjson"), strings.HasSuffix(lower, ".jsonl"):
 		return "application/x-ndjson"
 	case strings.HasSuffix(lower, ".json"):

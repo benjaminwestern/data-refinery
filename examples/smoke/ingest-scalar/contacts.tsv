@@ -1,0 +1,3 @@
+customer_id	first_name	last_name	email	mobile	postcode	source
+scalar-tsv-1	Katherine,Johnson,katherine@example.com,0400000013,3012,tsv-scalar
+scalar-tsv-2	Dorothy,Vaughan,dorothy@example.com,0400000014,3013,tsv-scalar

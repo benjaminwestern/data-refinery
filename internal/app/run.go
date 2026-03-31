@@ -100,6 +100,7 @@ func runAnalysis(ctx context.Context, cfg *config.Config, safetyOptions runtimeS
 	fs.BoolVar(&unsafeBypass, "yes-i-know-what-im-doing", safetyOptions.unsafeBypass, "Bypass mutation safety checks for config trust and local output roots")
 	fs.StringVar(&cfg.Path, "path", cfg.Path, "Comma-separated list of paths to analyse (local or GCS)")
 	fs.StringVar(&cfg.Key, "key", cfg.Key, "JSON key for uniqueness check")
+	fs.StringVar(&cfg.XMLRecordPath, "xml-record-path", cfg.XMLRecordPath, "Dot-separated XML element path to treat as logical records during analysis")
 	fs.IntVar(&cfg.Workers, "workers", cfg.Workers, "Number of concurrent workers")
 	fs.StringVar(&cfg.LogPath, "log-path", cfg.LogPath, "Directory to save logs and reports")
 	fs.StringVar(&cfg.ApprovedOutputRoot, "approved-output-root", cfg.ApprovedOutputRoot, "Approved local root for guarded mutation output paths (defaults to the current working directory)")
@@ -208,6 +209,7 @@ func runAnalysis(ctx context.Context, cfg *config.Config, safetyOptions runtimeS
 			AppConfig:           cfg,
 			Paths:               cfg.Path,
 			Key:                 cfg.Key,
+			XMLRecordPath:       cfg.XMLRecordPath,
 			Workers:             cfg.Workers,
 			LogPath:             cfg.LogPath,
 			OutputFormat:        outputFormat,
@@ -265,6 +267,7 @@ func runRewrite(ctx context.Context, baseCfg *config.Config, safetyOptions runti
 		Workers:            baseCfg.Workers,
 		LogPath:            baseCfg.LogPath,
 		ApprovedOutputRoot: baseCfg.ApprovedOutputRoot,
+		XMLRecordPath:      baseCfg.XMLRecordPath,
 		Mode:               rewrite.ModePreview,
 	}
 
@@ -308,6 +311,7 @@ func runRewrite(ctx context.Context, baseCfg *config.Config, safetyOptions runti
 	fs.StringVar(&cfg.ApprovedOutputRoot, "approved-output-root", cfg.ApprovedOutputRoot, "Approved local root for apply-mode output paths (defaults to the current working directory)")
 	fs.StringVar((*string)(&cfg.Mode), "mode", string(cfg.Mode), "Rewrite mode: preview or apply")
 	fs.StringVar(&cfg.BackupDir, "backup-dir", cfg.BackupDir, "Directory used for backups in apply mode")
+	fs.StringVar(&cfg.XMLRecordPath, "xml-record-path", cfg.XMLRecordPath, "Dot-separated XML element path to treat as logical rewrite records")
 	fs.StringVar(&cfg.TopLevelKey, "top-level-key", cfg.TopLevelKey, "Delete whole rows when this key matches")
 	fs.StringVar(&topLevelValsInput, "top-level-vals", strings.Join(cfg.TopLevelValues, ","), "Comma-separated values or CSV file path for top-level row deletion")
 	fs.StringVar(&cfg.ArrayKey, "array-key", cfg.ArrayKey, "Array key to rewrite within each row")
@@ -569,8 +573,8 @@ func closeLogFile(logFile *os.File, logFilePath string) {
 }
 
 func printRootUsage() {
-	fmt.Printf("%s is a workflow-first CLI for normalization, read-only analysis,\n", appName)
-	fmt.Printf("and preview-before-apply cleanup across local storage and GCS.\n\n")
+	fmt.Printf("%s is a workflow-first CLI for normalization, structured-data\n", appName)
+	fmt.Printf("analysis, and preview-before-apply cleanup across local storage and GCS.\n\n")
 	fmt.Printf("Usage:\n")
 	fmt.Printf("  %s [analysis flags]\n", appName)
 	fmt.Printf("  %s analyse [analysis flags]\n", appName)
@@ -578,12 +582,12 @@ func printRootUsage() {
 	fmt.Printf("  %s rewrite [rewrite flags]\n", appName)
 	fmt.Printf("  %s help <analysis|ingest|rewrite>\n\n", appName)
 	fmt.Printf("Workflows:\n")
-	fmt.Printf("  analysis  Inspect JSON-family datasets, validate keys, review duplicates,\n")
+	fmt.Printf("  analysis  Inspect structured datasets, validate keys, review duplicates,\n")
 	fmt.Printf("            and generate reports or derived cleanup artifacts.\n")
-	fmt.Printf("  ingest    Normalize CSV, TSV, XLSX, JSON, NDJSON, or JSONL inputs into\n")
+	fmt.Printf("  ingest    Normalize CSV, TSV, XLSX, XML, JSON, NDJSON, or JSONL sources into\n")
 	fmt.Printf("            one unified dataset with a stable schema.\n")
-	fmt.Printf("  rewrite   Preview or apply streamed cleanup rules to JSON, NDJSON, and\n")
-	fmt.Printf("            JSONL files with backup-aware apply mode.\n\n")
+	fmt.Printf("  rewrite   Preview or apply targeted cleanup rules to JSON, NDJSON,\n")
+	fmt.Printf("            JSONL, and XML inputs with backup-aware apply mode.\n\n")
 	fmt.Printf("First useful commands:\n")
 	fmt.Printf("  %s ingest -config examples/ingest-simple-config.json\n", appName)
 	fmt.Printf("  %s -validate -path ./test_data -key id\n", appName)
@@ -605,8 +609,8 @@ type helpFlag struct {
 }
 
 func printAnalysisUsage() {
-	fmt.Printf("analysis inspects JSON, NDJSON, and JSONL datasets without mutating\n")
-	fmt.Printf("source data unless you explicitly enable local purge flows.\n\n")
+	fmt.Printf("analysis inspects structured datasets without mutating source data\n")
+	fmt.Printf("unless you explicitly enable local purge flows.\n\n")
 	fmt.Printf("Usage:\n")
 	fmt.Printf("  %s [analysis flags]\n", appName)
 	fmt.Printf("  %s analyse [analysis flags]\n", appName)
@@ -616,13 +620,21 @@ func printAnalysisUsage() {
 	fmt.Printf("  %s -validate -path ./test_data -key id\n", appName)
 	fmt.Printf("  %s -headless -path ./test_data -key id -output json\n", appName)
 	fmt.Printf("  %s --app-config examples/test_full_advanced.json -headless\n\n", appName)
+	fmt.Printf("Supported inputs:\n")
+	fmt.Printf("  csv, tsv, xlsx, xml, json, ndjson, jsonl\n\n")
+	fmt.Printf("XML behavior:\n")
+	fmt.Printf("  Set -xml-record-path when repeated XML elements should stream as\n")
+	fmt.Printf("  logical records. Without it, analysis treats the whole document as\n")
+	fmt.Printf("  one record.\n\n")
 	fmt.Printf("Outputs:\n")
-	fmt.Printf("  analysis always prints a report to stdout and can also write text or\n")
-	fmt.Printf("  JSON reports under -log-path. Advanced configs can add search results,\n")
-	fmt.Printf("  schema reports, and derived cleanup artifacts.\n")
+	fmt.Printf("  headless and validation runs print reports to stdout. TUI runs render\n")
+	fmt.Printf("  interactive review in the terminal. Saved outputs under -log-path can\n")
+	fmt.Printf("  include text reports, JSON reports, schema reports, search results,\n")
+	fmt.Printf("  and derived cleanup artifacts.\n")
 	printHelpFlags("Core flags", []helpFlag{
-		{Name: "path", Value: "PATHS", Description: "Comma-separated list of local paths or gs:// URIs to analyse."},
+		{Name: "path", Value: "PATHS", Description: "Comma-separated local paths or gs:// URIs to analyse. Supports csv, tsv, xlsx, xml, json, ndjson, and jsonl."},
 		{Name: "key", Value: "FIELD", Description: "Top-level key used for duplicate and validation checks."},
+		{Name: "xml-record-path", Value: "PATH", Description: "Dot-separated XML element path to stream as logical records. Defaults to the whole XML document."},
 		{Name: "workers", Value: "N", Description: "Number of concurrent workers. Default: 8."},
 		{Name: "headless", Description: "Run without the TUI and print the report to stdout."},
 		{Name: "validate", Description: "Run a key validation pass and exit."},
@@ -645,8 +657,8 @@ func printAnalysisUsage() {
 }
 
 func printIngestUsage() {
-	fmt.Printf("ingest normalizes mixed source formats into one unified dataset that\n")
-	fmt.Printf("analysis and rewrite can consume directly.\n\n")
+	fmt.Printf("ingest normalizes mixed source formats into one unified dataset for\n")
+	fmt.Printf("downstream analysis and JSON-family rewrite workflows.\n\n")
 	fmt.Printf("Usage:\n")
 	fmt.Printf("  %s ingest [ingest flags]\n", appName)
 	fmt.Printf("  %s normalize [ingest flags]\n", appName)
@@ -658,15 +670,20 @@ func printIngestUsage() {
 	fmt.Printf("      -mapping-file ./mappings.yaml \\\n")
 	fmt.Printf("      -output-path ./logs/unified.ndjson\n\n")
 	fmt.Printf("Supported input formats:\n")
-	fmt.Printf("  csv, tsv, xlsx, json, ndjson, jsonl\n\n")
+	fmt.Printf("  csv, tsv, xlsx, xml, json, ndjson, jsonl\n\n")
+	fmt.Printf("XML behavior:\n")
+	fmt.Printf("  XML ingest uses xmlRecordPath in the matching mapping rule when repeated\n")
+	fmt.Printf("  XML elements should stream as logical records.\n\n")
 	fmt.Printf("Supported output formats:\n")
 	fmt.Printf("  .csv, .json, .ndjson, .jsonl for the normalized dataset, plus optional\n")
 	fmt.Printf("  .json run summaries. CSV export is scalar-only. If a row contains nested\n")
 	fmt.Printf("  data such as Attributes, the run fails and advises json, ndjson, or jsonl.\n")
+	fmt.Printf("  Choose .json, .ndjson, or .jsonl if the normalized dataset will feed\n")
+	fmt.Printf("  rewrite later.\n")
 	printHelpFlags("Core flags", []helpFlag{
 		{Name: "config", Value: "FILE", Description: "Portable ingest job definition. Relative paths resolve from this file."},
 		{Name: "path", Value: "PATHS", Description: "Comma-separated list of local paths or gs:// URIs to normalize."},
-		{Name: "mapping-file", Value: "FILE", Description: "Local YAML or JSON mapping file that defines normalization rules."},
+		{Name: "mapping-file", Value: "FILE", Description: "Local YAML or JSON mapping file that defines normalization rules, including xmlRecordPath for XML sources."},
 		{Name: "output-path", Value: "FILE", Description: "Unified output target ending in .csv, .json, .ndjson, or .jsonl."},
 		{Name: "stats-output-path", Value: "FILE", Description: "Optional JSON summary target for run statistics."},
 		{Name: "require-mappings", Description: "Fail if any discovered file does not match a mapping rule."},
@@ -682,22 +699,33 @@ func printIngestUsage() {
 }
 
 func printRewriteUsage() {
-	fmt.Printf("rewrite applies streamed cleanup rules to JSON, NDJSON, and JSONL\n")
-	fmt.Printf("datasets. Use preview first, then switch to apply once the summary is\n")
-	fmt.Printf("correct.\n\n")
+	fmt.Printf("rewrite applies preview-first cleanup rules to JSON, NDJSON, JSONL,\n")
+	fmt.Printf("and XML inputs. Use preview first, then switch to apply once the summary\n")
+	fmt.Printf("is correct.\n\n")
 	fmt.Printf("Usage:\n")
 	fmt.Printf("  %s rewrite [rewrite flags]\n\n", appName)
 	fmt.Printf("Examples:\n")
 	fmt.Printf("  %s rewrite -config examples/rewrite-delete-config.json\n", appName)
 	fmt.Printf("  %s rewrite -config examples/rewrite-update-config.json\n", appName)
 	fmt.Printf("  %s rewrite -path ./test_data -top-level-key customer_id \\\n", appName)
-	fmt.Printf("      -top-level-vals ./ids.csv -mode preview\n\n")
+	fmt.Printf("      -top-level-vals ./ids.csv -mode preview\n")
+	fmt.Printf("  %s rewrite -path examples/smoke/rewrite/source/orders.xml \\\n", appName)
+	fmt.Printf("      -xml-record-path orders.order -top-level-key customer_id \\\n")
+	fmt.Printf("      -top-level-vals cust-delete -mode preview\n\n")
+	fmt.Printf("Supported inputs:\n")
+	fmt.Printf("  xml, json, ndjson, jsonl\n\n")
+	fmt.Printf("XML behavior:\n")
+	fmt.Printf("  XML rewrites require -xml-record-path so repeated elements are treated\n")
+	fmt.Printf("  as logical records.\n\n")
 	fmt.Printf("Operations:\n")
 	fmt.Printf("  delete whole rows by top-level key, delete matching items from nested\n")
 	fmt.Printf("  arrays, or recursively update values with optional ID and state filters.\n")
+	fmt.Printf("  Preview prints a summary only. Apply writes changes in place and creates\n")
+	fmt.Printf("  backups under -backup-dir.\n")
 	printHelpFlags("Core flags", []helpFlag{
 		{Name: "config", Value: "FILE", Description: "Portable rewrite job definition. Relative paths resolve from this file."},
 		{Name: "path", Value: "PATHS", Description: "Comma-separated list of local paths or gs:// URIs to rewrite."},
+		{Name: "xml-record-path", Value: "PATH", Description: "Required for XML rewrites. Dot-separated XML element path treated as logical records."},
 		{Name: "mode", Value: "preview|apply", Description: "Preview reports changes. Apply writes results and creates backups."},
 		{Name: "top-level-key", Value: "FIELD", Description: "Delete whole rows when this top-level key matches."},
 		{Name: "top-level-vals", Value: "VALUES|CSV", Description: "Comma-separated match values or a CSV file path."},

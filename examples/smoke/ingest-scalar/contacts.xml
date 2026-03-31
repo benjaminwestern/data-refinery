@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<contacts>
+  <contact>
+    <member>
+      <identifier>scalar-xml-1</identifier>
+    </member>
+    <profile>
+      <first_name>Grace</first_name>
+      <last_name>Hopper</last_name>
+      <email>grace.scalar@example.com</email>
+    </profile>
+    <contact_details>
+      <mobile>0400000019</mobile>
+      <postcode>3018</postcode>
+    </contact_details>
+    <source>xml-scalar</source>
+  </contact>
+  <contact>
+    <member>
+      <identifier>scalar-xml-2</identifier>
+    </member>
+    <profile>
+      <first_name>Margaret</first_name>
+      <last_name>Hamilton</last_name>
+      <email>margaret.scalar@example.com</email>
+    </profile>
+    <contact_details>
+      <mobile>0400000020</mobile>
+      <postcode>3019</postcode>
+    </contact_details>
+    <source>xml-scalar</source>
+  </contact>
+</contacts>

@@ -5,6 +5,7 @@ _.file = ".env"
 go = "1.25.0"
 python = "3.13"
 hk = "latest"
+bats = "latest"
 "go:oss.terrastruct.com/d2" = { version = "latest" }
 
 "go:github.com/golangci/golangci-lint/v2/cmd/golangci-lint" = { version = "latest" }
@@ -16,7 +17,7 @@ run = "mise tasks ls --local >/dev/null"
 
 [tasks."scripts:check"]
 description = "Validate repository helper scripts"
-run = "bash -n scripts/render_diagrams.sh && python3 -m py_compile scripts/generate_assets.py"
+run = "bash -n scripts/render_diagrams.sh && python3 -m py_compile scripts/generate_assets.py scripts/generate_smoke_xlsx.py"
 
 [tasks."go:build"]
 description = "Build the data-refinery CLI binary in the repository root"
@@ -27,14 +28,23 @@ description = "Build the data-refinery CLI binary"
 depends = ["go:build"]
 run = "true"
 
-[tasks."go:test"]
+[tasks."tests:go"]
 description = "Run the Go test suite"
 run = "go test ./..."
 
+[tasks."go:test"]
+description = "Run the Go test suite"
+depends = ["tests:go"]
+run = "true"
+
 [tasks.test]
 description = "Run the Go test suite"
-depends = ["go:test"]
+depends = ["tests:go"]
 run = "true"
+
+[tasks."tests:bats"]
+description = "Run the CLI BATS smoke suite"
+run = "bats tests/cli_smoke.bats"
 
 [tasks."go:fmt"]
 description = "Apply Go formatters defined in .golangci.yaml"
@@ -84,6 +94,16 @@ description = "Smoke test the CLI help surfaces"
 depends = ["cli:help", "cli:help:analysis", "cli:help:ingest", "cli:help:rewrite"]
 run = "true"
 
+[tasks."cli:smoke"]
+description = "Run the CLI smoke suite through BATS"
+depends = ["tests:bats"]
+run = "true"
+
+[tasks."check:cli:smoke"]
+description = "Run the CLI smoke suite"
+depends = ["cli:smoke"]
+run = "true"
+
 [tasks."check:quick"]
 description = "Run the fast local verification suite"
 depends = [
@@ -98,7 +118,7 @@ run = "true"
 
 [tasks.check]
 description = "Run the main local verification suite"
-depends = ["check:quick", "go:test"]
+depends = ["check:quick", "tests:go", "tests:bats"]
 run = "true"
 
 [tasks."check:ci"]

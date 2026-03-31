@@ -2,12 +2,12 @@
 package analyser
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,6 +16,7 @@ import (
 	"github.com/benjaminwestern/data-refinery/internal/deletion"
 	"github.com/benjaminwestern/data-refinery/internal/errors"
 	"github.com/benjaminwestern/data-refinery/internal/hasher"
+	"github.com/benjaminwestern/data-refinery/internal/input"
 	"github.com/benjaminwestern/data-refinery/internal/memory"
 	"github.com/benjaminwestern/data-refinery/internal/processing"
 	"github.com/benjaminwestern/data-refinery/internal/report"
@@ -385,17 +386,6 @@ func (a *Analyser) worker(ctx context.Context, sourceChan <-chan source.InputSou
 
 func (a *Analyser) processSource(ctx context.Context, src source.InputSource) {
 	a.CurrentFolder.Store(src.Dir())
-	reader, err := src.Open(ctx)
-	if err != nil {
-		log.Printf("Error opening source %q: %v\n", src.Path(), err)
-		return
-	}
-	defer func() {
-		if closeErr := reader.Close(); closeErr != nil {
-			log.Printf("Error closing source %q: %v\n", src.Path(), closeErr)
-		}
-	}()
-
 	// Check memory pressure before processing
 	if a.memoryManager != nil {
 		a.memoryManager.CheckMemoryUsage()
@@ -405,11 +395,6 @@ func (a *Analyser) processSource(ctx context.Context, src source.InputSource) {
 		}
 	}
 
-	// Use the row processor for processing
-	rowHasher := fnv.New64a()
-	scanner := bufio.NewScanner(reader)
-
-	// Adjust buffer size based on memory configuration
 	bufferSize := 4 * 1024 * 1024 // 4MB default
 	maxCapacity := 4 * 1024 * 1024
 	if a.config.Performance != nil && a.config.Performance.BufferSize > 0 {
@@ -421,40 +406,53 @@ func (a *Analyser) processSource(ctx context.Context, src source.InputSource) {
 	if maxCapacity < bufferSize {
 		maxCapacity = bufferSize
 	}
-	buf := make([]byte, bufferSize)
-	scanner.Buffer(buf, maxCapacity)
 
-	lineNumber := 0
-	for scanner.Scan() {
+	reader, err := newAnalysisReader(ctx, src, bufferSize, maxCapacity, a.config.XMLRecordPath)
+	if err != nil {
+		log.Printf("Error opening source %q: %v\n", src.Path(), err)
+		return
+	}
+	defer func() {
+		if closeErr := reader.Close(); closeErr != nil {
+			log.Printf("Error closing source %q: %v\n", src.Path(), closeErr)
+		}
+	}()
+
+	// Use the row processor for processing
+	rowHasher := fnv.New64a()
+	recordCount := 0
+	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
 		}
 
-		lineNumber++
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
+		record, err := reader.Next(ctx)
+		if err == io.EOF {
+			break
 		}
-
-		var data report.JSONData
-		if err := json.Unmarshal(line, &data); err != nil {
-			log.Printf("Error decoding JSON on line %d in source %q: %v\n", lineNumber, src.Path(), err)
+		if err != nil {
+			log.Printf("Reader error in source %q: %v\n", src.Path(), err)
+			return
+		}
+		if record.DecodeErr != nil {
+			log.Printf("Error decoding JSON on line %d in source %q: %v\n", record.LineNumber, src.Path(), record.DecodeErr)
 			continue
 		}
 
 		a.TotalRows.Add(1)
+		recordCount++
 
 		location := report.LocationInfo{
 			FilePath:   src.Path(),
-			LineNumber: lineNumber,
+			LineNumber: record.LineNumber,
 		}
 
 		// Use the row processor for all processing
 		if a.rowProcessor != nil {
 			err := a.executeWithCircuitBreaker(ctx, "row_processing", func() error {
-				return a.rowProcessor.ProcessRow(data, location, rowHasher)
+				return a.rowProcessor.ProcessRow(record.Data, location, rowHasher)
 			})
 			if err != nil {
 				if recoveredErr := a.handleRecoverableError(ctx, err, "row processing"); recoveredErr != nil {
@@ -464,7 +462,7 @@ func (a *Analyser) processSource(ctx context.Context, src source.InputSource) {
 		}
 
 		// Periodic memory pressure check
-		if a.memoryManager != nil && lineNumber%1000 == 0 {
+		if a.memoryManager != nil && recordCount%1000 == 0 {
 			a.memoryManager.CheckMemoryUsage()
 			if a.memoryManager.ShouldReduceMemory() {
 				log.Printf("Memory pressure detected during processing, forcing GC")
@@ -473,15 +471,37 @@ func (a *Analyser) processSource(ctx context.Context, src source.InputSource) {
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		log.Printf("Scanner error in source %q: %v\n", src.Path(), err)
-		return
-	}
-
 	a.processedPathsMutex.Lock()
 	a.processedPaths[src.Path()] = true
 	a.processedPathsMutex.Unlock()
 	a.ProcessedFiles.Add(1)
+}
+
+func newAnalysisReader(ctx context.Context, src source.InputSource, bufferSize, maxCapacity int, xmlRecordPath string) (input.Reader, error) {
+	format := input.DetectFormatFromPath(src.Path())
+	opts := []input.ReaderOption{
+		input.WithScanBuffer(bufferSize, maxCapacity),
+	}
+	switch format {
+	case input.FormatJSON:
+		opts = append(opts, input.WithJSONMode(input.JSONModeLineStream), input.WithDecodeErrorsAsRecords())
+	case input.FormatNDJSON, input.FormatJSONL:
+		opts = append(opts, input.WithDecodeErrorsAsRecords())
+	case input.FormatXML:
+		if strings.TrimSpace(xmlRecordPath) != "" {
+			opts = append(opts, input.WithXMLRecordPath(xmlRecordPath))
+		}
+	case input.FormatCSV, input.FormatTSV, input.FormatXLSX:
+	case input.FormatUnknown:
+		return nil, fmt.Errorf("unsupported analysis input format for %s", src.Path())
+	}
+
+	reader, err := input.NewReaderFromSource(ctx, src, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("create analysis reader for %s: %w", src.Path(), err)
+	}
+
+	return reader, nil
 }
 
 func (a *Analyser) generateReport(sources []source.InputSource, wasCancelled, isValidation bool) *report.AnalysisReport {

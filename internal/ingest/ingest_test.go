@@ -503,6 +503,108 @@ files:
 	}
 }
 
+func TestRunSupportsXMLInput(t *testing.T) {
+	root := t.TempDir()
+	logDir := filepath.Join(root, "logs")
+	outputPath := filepath.Join(root, "out", "customers.ndjson")
+	inputPath := filepath.Join(root, "customers.xml")
+	mappingPath := filepath.Join(root, "mappings.yaml")
+
+	xmlContent := `<?xml version="1.0" encoding="UTF-8"?>
+<contacts>
+  <contact>
+    <member>
+      <identifier>8001</identifier>
+    </member>
+    <profile>
+      <first_name>Xiomara</first_name>
+      <last_name>Lane</last_name>
+      <email>xiomara@example.com</email>
+    </profile>
+    <contact_details>
+      <mobile>0400111222</mobile>
+      <postcode>3001</postcode>
+    </contact_details>
+    <status>active</status>
+    <source>manual-xml</source>
+  </contact>
+  <contact>
+    <member>
+      <identifier>8002</identifier>
+    </member>
+    <profile>
+      <first_name>Yasmin</first_name>
+      <last_name>Stone</last_name>
+      <email>yasmin@example.com</email>
+    </profile>
+    <contact_details>
+      <mobile>0400333444</mobile>
+      <postcode>3002</postcode>
+    </contact_details>
+    <status>trial</status>
+    <source>manual-xml</source>
+  </contact>
+</contacts>`
+	if err := os.WriteFile(inputPath, []byte(xmlContent), 0o644); err != nil {
+		t.Fatalf("failed to write xml fixture: %v", err)
+	}
+
+	mappingContent := `
+files:
+  - match:
+      name: customers.xml
+      format: xml
+    xmlRecordPath: contacts.contact
+    columns:
+      member.identifier: Id
+      profile.first_name: FirstName
+      profile.last_name: LastName
+      profile.email: Email
+      contact_details.mobile: Mobile
+      contact_details.postcode: PostCode
+      source: DataSource
+    attributes:
+      status: SubscriptionStatus
+`
+	if err := os.WriteFile(mappingPath, []byte(strings.TrimSpace(mappingContent)), 0o644); err != nil {
+		t.Fatalf("failed to write xml mapping file: %v", err)
+	}
+
+	summary, err := Run(context.Background(), &Config{
+		Paths:           []string{inputPath},
+		Workers:         1,
+		LogPath:         logDir,
+		OutputPath:      outputPath,
+		MappingFile:     mappingPath,
+		RequireMappings: true,
+	})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if got, want := summary.RowsWritten, int64(2); got != want {
+		t.Fatalf("expected %d rows written, got %d", want, got)
+	}
+
+	records := readUnifiedRecords(t, outputPath)
+	if len(records) != 2 {
+		t.Fatalf("expected 2 unified records, got %d", len(records))
+	}
+	if records[0].ID == nil || *records[0].ID != "8001" {
+		t.Fatalf("expected first XML record Id 8001, got %+v", records[0].ID)
+	}
+	if records[1].Email == nil || *records[1].Email != "yasmin@example.com" {
+		t.Fatalf("expected second XML record email to be preserved, got %+v", records[1].Email)
+	}
+	for _, record := range records {
+		if record.DataSource == nil || *record.DataSource != "manual-xml" {
+			t.Fatalf("expected XML source field to map into DataSource, got %+v", record.DataSource)
+		}
+		if !hasAttributeKey(record.Attributes, "SubscriptionStatus") {
+			t.Fatalf("expected XML status to be mapped into attributes, got %+v", record.Attributes)
+		}
+	}
+}
+
 func TestRunSupportsCSVOutputForScalarRows(t *testing.T) {
 	root := t.TempDir()
 	logDir := filepath.Join(root, "logs")

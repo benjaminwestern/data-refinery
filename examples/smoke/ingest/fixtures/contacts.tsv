@@ -1,0 +1,3 @@
+customer_id	first_name	last_name	email	mobile	postcode	status
+ingest-003	Cara	West	cara.ingest@example.com	0400000003	3002	active
+ingest-004	Drew	Cruz	drew.ingest@example.com	0400000004	3003	active

@@ -200,6 +200,7 @@ type model struct {
 
 	path                 string
 	key                  string
+	xmlRecordPath        string
 	workers              int
 	logPath              string
 	approvedOutputRoot   string
@@ -355,6 +356,7 @@ func initModel(ctx context.Context, cfg *config.Config) model {
 
 		path:                 cfg.Path,
 		key:                  cfg.Key,
+		xmlRecordPath:        cfg.XMLRecordPath,
 		workers:              cfg.Workers,
 		logPath:              cfg.LogPath,
 		approvedOutputRoot:   cfg.ApprovedOutputRoot,
@@ -417,6 +419,7 @@ func (m *model) buildConfig() *config.Config {
 	cfg := &config.Config{
 		Path:                        m.path,
 		Key:                         m.key,
+		XMLRecordPath:               m.xmlRecordPath,
 		Workers:                     m.workers,
 		LogPath:                     m.logPath,
 		ApprovedOutputRoot:          m.approvedOutputRoot,
@@ -695,7 +698,7 @@ func (m model) View() string {
 
 func discoverAllSourcesCmd(ctx context.Context, paths []string) tea.Cmd {
 	return func() tea.Msg {
-		sources, err := source.DiscoverAll(ctx, paths)
+		sources, err := source.DiscoverAllWithOptions(ctx, paths, source.DefaultAnalysisDiscoveryOptions())
 		if err != nil {
 			if ctx.Err() == context.Canceled {
 				return nil
@@ -1534,7 +1537,7 @@ func renderHelp(m *model) string {
 		subtitleStyle.Render("🚀 Quick Start") + "\n\n" +
 			"1. Choose 'Quick Validation' to test a unique key\n" +
 			"2. Enter your data path (local or gs://bucket/path)\n" +
-			"3. Specify the JSON key for uniqueness (e.g., 'id', 'user_id')\n" +
+			"3. Specify the record key for uniqueness (for example 'id' or 'user_id')\n" +
 			"4. Review the validation results\n" +
 			"5. Run 'Full Analysis' for complete duplicate detection")
 	content.WriteString(quickStart + "\n")
@@ -1542,6 +1545,10 @@ func renderHelp(m *model) string {
 	// Supported formats section
 	formats := cardStyle.Render(
 		subtitleStyle.Render("📄 Supported Formats") + "\n\n" +
+			"• CSV files (.csv)\n" +
+			"• TSV files (.tsv)\n" +
+			"• XLSX workbooks (.xlsx)\n" +
+			"• XML documents (.xml)\n" +
 			"• JSON files (.json)\n" +
 			"• NDJSON/JSONL files (.jsonl, .ndjson)\n" +
 			"• Local filesystem paths\n" +
@@ -1585,7 +1592,8 @@ func renderHelp(m *model) string {
 				"  --key id                   Unique key field name\n" +
 				"  --workers 8                Number of concurrent workers\n" +
 				"  --output json              Output format (txt/json)\n" +
-				"  --validate                 Quick validation mode\n\n" +
+				"  --validate                 Quick validation mode\n" +
+				"  --xml-record-path a.b.c    Stream repeated XML elements as records\n\n" +
 				"Examples:\n" +
 				"  ./data-refinery --path /data --key user_id\n" +
 				"  ./data-refinery --headless --path gs://bucket/data --key id --output json\n" +
@@ -1643,7 +1651,7 @@ func renderInputPath(m *model) string {
 		subtitleStyle.Render("📄 Supported Formats") + "\n\n" +
 			"• Local paths: /path/to/data, ./relative/path\n" +
 			"• Multiple paths: /path1,/path2,/path3\n" +
-			"• JSON files: .json, .jsonl, .ndjson\n")
+			"• Supported files: .csv, .tsv, .xlsx, .xml, .json, .jsonl, .ndjson\n")
 
 	// Add GCS info if available
 	if m.gcsAvailable {

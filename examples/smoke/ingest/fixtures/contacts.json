@@ -1,0 +1,22 @@
+[
+  {
+    "identifier": "ingest-005",
+    "first_name": "Elliot",
+    "last_name": "Poe",
+    "email": "elliot.ingest@example.com",
+    "mobile": "0400000005",
+    "postcode": "3004",
+    "status": "active",
+    "source": "smoke-json"
+  },
+  {
+    "identifier": "ingest-006",
+    "first_name": "Flynn",
+    "last_name": "Quinn",
+    "email": "flynn.ingest@example.com",
+    "mobile": "0400000006",
+    "postcode": "3005",
+    "status": "pending",
+    "source": "smoke-json"
+  }
+]
