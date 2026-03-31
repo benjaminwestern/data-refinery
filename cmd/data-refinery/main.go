@@ -1,3 +1,4 @@
+// Package main provides the data-refinery CLI entrypoint.
 package main
 
 import (

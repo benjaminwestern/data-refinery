@@ -1,0 +1,35 @@
+direction: right
+
+classes: {
+  stage: {
+    style.fill: "#FBF7F0"
+    style.stroke: "#2A2A33"
+    style.stroke-width: 1
+  }
+  action: {
+    style.fill: "#9FA7D0"
+    style.stroke: "#2A2A33"
+    style.stroke-width: 1
+  }
+  output: {
+    style.fill: "#3B6F73"
+    style.stroke: "#2A2A33"
+    style.stroke-width: 1
+    style.font-color: "#FFF9F1"
+  }
+}
+
+Paths: {class: stage; label: "Resolve JSON-family paths"}
+Mode: {class: stage; label: "Choose TUI, headless, or validate"}
+Checks: {class: action; label: "Run duplicate checks"}
+Advanced: {class: action; label: "Optional search, schema, deletion artifacts"}
+Stdout: {class: output; label: "Print summary or validation result"}
+Files: {class: output; label: "Optional txt / json reports"}
+LocalPurge: {class: output; label: "Optional local purge flow in TUI"}
+
+Paths -> Mode
+Mode -> Checks
+Checks -> Advanced
+Advanced -> Stdout
+Advanced -> Files
+Mode -> LocalPurge: "interactive only"

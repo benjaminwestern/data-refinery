@@ -1,4 +1,4 @@
-// internal/report/report.go
+// Package report renders and persists analysis output reports.
 package report
 
 import (
@@ -68,6 +68,24 @@ type SummaryReport struct {
 	FolderDetails             map[string]FolderDetail `json:"folderDetails"`
 }
 
+type validationFolderRow struct {
+	path  string
+	files string
+	rows  string
+	keys  string
+}
+
+type analysisFolderRow struct {
+	path     string
+	data     string
+	files    string
+	avgRows  string
+	rows     string
+	keys     string
+	dupeIDs  string
+	dupeRows string
+}
+
 var (
 	reportStyle      = lipgloss.NewStyle().Padding(0, 1).Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("63"))
 	headerStyle      = lipgloss.NewStyle().Bold(true).MarginBottom(1).Underline(true)
@@ -111,66 +129,7 @@ func (r *AnalysisReport) validationReportString(showFolderBreakdown bool) string
 		s.UniqueKey, filesAnalysedStr, s.TotalRowsProcessed, s.TotalKeyOccurrences, s.TotalElapsedTime,
 	)
 	b.WriteString(reportStyle.Render(summaryContent))
-
-	if showFolderBreakdown && len(s.FolderDetails) > 0 {
-		var sortedFolders []string
-		for path := range s.FolderDetails {
-			sortedFolders = append(sortedFolders, path)
-		}
-		sort.Strings(sortedFolders)
-
-		var tableContent strings.Builder
-		headers := []string{"Path", "Files Checked", "Rows Processed", "Keys Found"}
-
-		type formattedRow struct{ path, files, rows, keys string }
-		var rows []formattedRow
-		maxWidths := make([]int, len(headers))
-		for i, h := range headers {
-			maxWidths[i] = len(h)
-		}
-
-		for _, folder := range sortedFolders {
-			detail := s.FolderDetails[folder]
-			var filesStr string
-			if s.IsPartialReport {
-				filesStr = fmt.Sprintf("%d / %d", detail.FilesProcessed, detail.TotalFiles)
-			} else {
-				filesStr = fmt.Sprintf("%d", detail.TotalFiles)
-			}
-			row := formattedRow{
-				path:  folder,
-				files: filesStr,
-				rows:  fmt.Sprintf("%d", detail.RowsProcessed),
-				keys:  fmt.Sprintf("%d", detail.KeysFound),
-			}
-			rows = append(rows, row)
-
-			if len(row.path) > maxWidths[0] {
-				maxWidths[0] = len(row.path)
-			}
-			if len(row.files) > maxWidths[1] {
-				maxWidths[1] = len(row.files)
-			}
-			if len(row.rows) > maxWidths[2] {
-				maxWidths[2] = len(row.rows)
-			}
-			if len(row.keys) > maxWidths[3] {
-				maxWidths[3] = len(row.keys)
-			}
-		}
-
-		headerFormat := fmt.Sprintf("%%-%ds | %%-%ds | %%-%ds | %%-%ds", maxWidths[0], maxWidths[1], maxWidths[2], maxWidths[3])
-		headerLine := fmt.Sprintf(headerFormat, headers[0], headers[1], headers[2], headers[3])
-		tableContent.WriteString(tableHeaderStyle.Render(headerLine) + "\n")
-
-		rowFormat := fmt.Sprintf("%%-%ds | %%-%ds | %%-%ds | %%-%ds", maxWidths[0], maxWidths[1], maxWidths[2], maxWidths[3])
-		for _, row := range rows {
-			tableContent.WriteString(fmt.Sprintf(rowFormat, row.path, row.files, row.rows, row.keys) + "\n")
-		}
-
-		b.WriteString("\n\n" + headerStyle.Render("--- Per-Folder Breakdown ---") + "\n")
-		b.WriteString(reportStyle.Render(strings.TrimRight(tableContent.String(), "\n")))
-	}
+	b.WriteString(r.validationFolderBreakdown(showFolderBreakdown))
 
 	return b.String()
 }
@@ -198,96 +157,7 @@ func (r *AnalysisReport) analysisReportString(isFullReport bool, checkKey, check
 		summaryContent += fmt.Sprintf("\nTotal Duplicate Row Instances:  %d", s.DuplicateRowInstances)
 	}
 	b.WriteString(reportStyle.Render(summaryContent))
-
-	if showFolderBreakdown && len(s.FolderDetails) > 0 {
-		var sortedFolders []string
-		for path := range s.FolderDetails {
-			sortedFolders = append(sortedFolders, path)
-		}
-		sort.Strings(sortedFolders)
-
-		var tableContent strings.Builder
-		headers := []string{"Path", "Data Analysed", "Files Analysed", "Avg Rows/File", "Rows Processed", "Keys Found", "Duplicate IDs", "Duplicate Rows"}
-
-		type formattedRow struct {
-			path, data, files, avgRows, rows, keys, dupeIDs, dupeRows string
-		}
-		var rows []formattedRow
-		maxWidths := make([]int, len(headers))
-		for i, h := range headers {
-			maxWidths[i] = len(h)
-		}
-
-		for _, folder := range sortedFolders {
-			detail := s.FolderDetails[folder]
-
-			var dataStr, filesStr string
-			if s.IsPartialReport {
-				dataStr = fmt.Sprintf("%s / %s", HumanSize(detail.ProcessedSizeBytes), HumanSize(detail.TotalSizeBytes))
-				filesStr = fmt.Sprintf("%d / %d", detail.FilesProcessed, detail.TotalFiles)
-			} else {
-				dataStr = HumanSize(detail.TotalSizeBytes)
-				filesStr = fmt.Sprintf("%d", detail.TotalFiles)
-			}
-
-			var avgRowsPerFile float64
-			if detail.FilesProcessed > 0 {
-				avgRowsPerFile = float64(detail.RowsProcessed) / float64(detail.FilesProcessed)
-			}
-
-			idCount := s.DuplicateIDsPerFolder[folder]
-			rowCount := s.DuplicateRowsPerFolder[folder]
-
-			row := formattedRow{
-				path:     folder,
-				data:     dataStr,
-				files:    filesStr,
-				avgRows:  fmt.Sprintf("%.2f", avgRowsPerFile),
-				rows:     fmt.Sprintf("%d", detail.RowsProcessed),
-				keys:     fmt.Sprintf("%d", detail.KeysFound),
-				dupeIDs:  fmt.Sprintf("%d", idCount),
-				dupeRows: fmt.Sprintf("%d", rowCount),
-			}
-			rows = append(rows, row)
-
-			if len(row.path) > maxWidths[0] {
-				maxWidths[0] = len(row.path)
-			}
-			if len(row.data) > maxWidths[1] {
-				maxWidths[1] = len(row.data)
-			}
-			if len(row.files) > maxWidths[2] {
-				maxWidths[2] = len(row.files)
-			}
-			if len(row.avgRows) > maxWidths[3] {
-				maxWidths[3] = len(row.avgRows)
-			}
-			if len(row.rows) > maxWidths[4] {
-				maxWidths[4] = len(row.rows)
-			}
-			if len(row.keys) > maxWidths[5] {
-				maxWidths[5] = len(row.keys)
-			}
-			if len(row.dupeIDs) > maxWidths[6] {
-				maxWidths[6] = len(row.dupeIDs)
-			}
-			if len(row.dupeRows) > maxWidths[7] {
-				maxWidths[7] = len(row.dupeRows)
-			}
-		}
-
-		headerFormat := fmt.Sprintf("%%-%ds | %%-%ds | %%-%ds | %%-%ds | %%-%ds | %%-%ds | %%-%ds | %%-%ds", maxWidths[0], maxWidths[1], maxWidths[2], maxWidths[3], maxWidths[4], maxWidths[5], maxWidths[6], maxWidths[7])
-		headerLine := fmt.Sprintf(headerFormat, headers[0], headers[1], headers[2], headers[3], headers[4], headers[5], headers[6], headers[7])
-		tableContent.WriteString(tableHeaderStyle.Render(headerLine) + "\n")
-
-		rowFormat := fmt.Sprintf("%%-%ds | %%-%ds | %%-%ds | %%-%ds | %%-%ds | %%-%ds | %%-%ds | %%-%ds", maxWidths[0], maxWidths[1], maxWidths[2], maxWidths[3], maxWidths[4], maxWidths[5], maxWidths[6], maxWidths[7])
-		for _, row := range rows {
-			tableContent.WriteString(fmt.Sprintf(rowFormat, row.path, row.data, row.files, row.avgRows, row.rows, row.keys, row.dupeIDs, row.dupeRows) + "\n")
-		}
-
-		b.WriteString("\n\n" + headerStyle.Render("--- Per-Folder Breakdown ---") + "\n")
-		b.WriteString(reportStyle.Render(strings.TrimRight(tableContent.String(), "\n")))
-	}
+	b.WriteString(r.analysisFolderBreakdown(showFolderBreakdown))
 
 	if isFullReport {
 		if checkKey && len(r.DuplicateIDs) > 0 {
@@ -299,9 +169,9 @@ func (r *AnalysisReport) analysisReportString(isFullReport bool, checkKey, check
 			sort.Strings(ids)
 			for _, id := range ids {
 				locs := r.DuplicateIDs[id]
-				b.WriteString(fmt.Sprintf("\nID '%s': %s (appears %d times)\n", s.UniqueKey, id, len(locs)))
+				fmt.Fprintf(&b, "\nID '%s': %s (appears %d times)\n", s.UniqueKey, id, len(locs))
 				for _, loc := range locs {
-					b.WriteString(fmt.Sprintf("  - File: %s, Row: %d\n", loc.FilePath, loc.LineNumber))
+					fmt.Fprintf(&b, "  - File: %s, Row: %d\n", loc.FilePath, loc.LineNumber)
 				}
 			}
 		}
@@ -314,14 +184,153 @@ func (r *AnalysisReport) analysisReportString(isFullReport bool, checkKey, check
 			sort.Strings(hashes)
 			for _, hash := range hashes {
 				locs := r.DuplicateRows[hash]
-				b.WriteString(fmt.Sprintf("\nRow (Hash: %s) found %d times:\n", hash, len(locs)))
+				fmt.Fprintf(&b, "\nRow (Hash: %s) found %d times:\n", hash, len(locs))
 				for _, loc := range locs {
-					b.WriteString(fmt.Sprintf("  - File: %s, Row: %d\n", loc.FilePath, loc.LineNumber))
+					fmt.Fprintf(&b, "  - File: %s, Row: %d\n", loc.FilePath, loc.LineNumber)
 				}
 			}
 		}
 	}
 	return b.String()
+}
+
+func sortedFolderPaths(details map[string]FolderDetail) []string {
+	sortedFolders := make([]string, 0, len(details))
+	for path := range details {
+		sortedFolders = append(sortedFolders, path)
+	}
+	sort.Strings(sortedFolders)
+	return sortedFolders
+}
+
+func formatFolderFileCount(isPartial bool, detail FolderDetail) string {
+	if isPartial {
+		return fmt.Sprintf("%d / %d", detail.FilesProcessed, detail.TotalFiles)
+	}
+
+	return fmt.Sprintf("%d", detail.TotalFiles)
+}
+
+func updateColumnWidths(maxWidths []int, values ...string) {
+	for i, value := range values {
+		if len(value) > maxWidths[i] {
+			maxWidths[i] = len(value)
+		}
+	}
+}
+
+func (r *AnalysisReport) validationFolderBreakdown(showFolderBreakdown bool) string {
+	s := r.Summary
+	if !showFolderBreakdown || len(s.FolderDetails) == 0 {
+		return ""
+	}
+
+	headers := []string{"Path", "Files Checked", "Rows Processed", "Keys Found"}
+	rows, maxWidths := buildValidationFolderRows(s, sortedFolderPaths(s.FolderDetails), headers)
+	return renderValidationFolderTable(rows, headers, maxWidths)
+}
+
+func buildValidationFolderRows(s SummaryReport, sortedFolders []string, headers []string) ([]validationFolderRow, []int) {
+	rows := make([]validationFolderRow, 0, len(sortedFolders))
+	maxWidths := make([]int, len(headers))
+	for i, header := range headers {
+		maxWidths[i] = len(header)
+	}
+
+	for _, folder := range sortedFolders {
+		detail := s.FolderDetails[folder]
+		row := validationFolderRow{
+			path:  folder,
+			files: formatFolderFileCount(s.IsPartialReport, detail),
+			rows:  fmt.Sprintf("%d", detail.RowsProcessed),
+			keys:  fmt.Sprintf("%d", detail.KeysFound),
+		}
+		rows = append(rows, row)
+		updateColumnWidths(maxWidths, row.path, row.files, row.rows, row.keys)
+	}
+
+	return rows, maxWidths
+}
+
+func renderValidationFolderTable(rows []validationFolderRow, headers []string, maxWidths []int) string {
+	var tableContent strings.Builder
+	headerFormat := fmt.Sprintf("%%-%ds | %%-%ds | %%-%ds | %%-%ds", maxWidths[0], maxWidths[1], maxWidths[2], maxWidths[3])
+	rowFormat := fmt.Sprintf("%%-%ds | %%-%ds | %%-%ds | %%-%ds", maxWidths[0], maxWidths[1], maxWidths[2], maxWidths[3])
+	headerLine := fmt.Sprintf(headerFormat, headers[0], headers[1], headers[2], headers[3])
+	tableContent.WriteString(tableHeaderStyle.Render(headerLine) + "\n")
+
+	for _, row := range rows {
+		tableContent.WriteString(fmt.Sprintf(rowFormat, row.path, row.files, row.rows, row.keys) + "\n")
+	}
+
+	return "\n\n" + headerStyle.Render("--- Per-Folder Breakdown ---") + "\n" + reportStyle.Render(strings.TrimRight(tableContent.String(), "\n"))
+}
+
+func (r *AnalysisReport) analysisFolderBreakdown(showFolderBreakdown bool) string {
+	s := r.Summary
+	if !showFolderBreakdown || len(s.FolderDetails) == 0 {
+		return ""
+	}
+
+	headers := []string{"Path", "Data Analysed", "Files Analysed", "Avg Rows/File", "Rows Processed", "Keys Found", "Duplicate IDs", "Duplicate Rows"}
+	rows, maxWidths := buildAnalysisFolderRows(s, sortedFolderPaths(s.FolderDetails), headers)
+	return renderAnalysisFolderTable(rows, headers, maxWidths)
+}
+
+func buildAnalysisFolderRows(s SummaryReport, sortedFolders []string, headers []string) ([]analysisFolderRow, []int) {
+	rows := make([]analysisFolderRow, 0, len(sortedFolders))
+	maxWidths := make([]int, len(headers))
+	for i, header := range headers {
+		maxWidths[i] = len(header)
+	}
+
+	for _, folder := range sortedFolders {
+		detail := s.FolderDetails[folder]
+		dataStr := HumanSize(detail.TotalSizeBytes)
+		if s.IsPartialReport {
+			dataStr = fmt.Sprintf("%s / %s", HumanSize(detail.ProcessedSizeBytes), HumanSize(detail.TotalSizeBytes))
+		}
+
+		avgRowsPerFile := 0.0
+		if detail.FilesProcessed > 0 {
+			avgRowsPerFile = float64(detail.RowsProcessed) / float64(detail.FilesProcessed)
+		}
+
+		row := analysisFolderRow{
+			path:     folder,
+			data:     dataStr,
+			files:    formatFolderFileCount(s.IsPartialReport, detail),
+			avgRows:  fmt.Sprintf("%.2f", avgRowsPerFile),
+			rows:     fmt.Sprintf("%d", detail.RowsProcessed),
+			keys:     fmt.Sprintf("%d", detail.KeysFound),
+			dupeIDs:  fmt.Sprintf("%d", s.DuplicateIDsPerFolder[folder]),
+			dupeRows: fmt.Sprintf("%d", s.DuplicateRowsPerFolder[folder]),
+		}
+		rows = append(rows, row)
+		updateColumnWidths(maxWidths, row.path, row.data, row.files, row.avgRows, row.rows, row.keys, row.dupeIDs, row.dupeRows)
+	}
+
+	return rows, maxWidths
+}
+
+func renderAnalysisFolderTable(rows []analysisFolderRow, headers []string, maxWidths []int) string {
+	var tableContent strings.Builder
+	headerFormat := fmt.Sprintf(
+		"%%-%ds | %%-%ds | %%-%ds | %%-%ds | %%-%ds | %%-%ds | %%-%ds | %%-%ds",
+		maxWidths[0], maxWidths[1], maxWidths[2], maxWidths[3], maxWidths[4], maxWidths[5], maxWidths[6], maxWidths[7],
+	)
+	rowFormat := fmt.Sprintf(
+		"%%-%ds | %%-%ds | %%-%ds | %%-%ds | %%-%ds | %%-%ds | %%-%ds | %%-%ds",
+		maxWidths[0], maxWidths[1], maxWidths[2], maxWidths[3], maxWidths[4], maxWidths[5], maxWidths[6], maxWidths[7],
+	)
+	headerLine := fmt.Sprintf(headerFormat, headers[0], headers[1], headers[2], headers[3], headers[4], headers[5], headers[6], headers[7])
+	tableContent.WriteString(tableHeaderStyle.Render(headerLine) + "\n")
+
+	for _, row := range rows {
+		tableContent.WriteString(fmt.Sprintf(rowFormat, row.path, row.data, row.files, row.avgRows, row.rows, row.keys, row.dupeIDs, row.dupeRows) + "\n")
+	}
+
+	return "\n\n" + headerStyle.Render("--- Per-Folder Breakdown ---") + "\n" + reportStyle.Render(strings.TrimRight(tableContent.String(), "\n"))
 }
 
 // ToJSON converts the report to a JSON string.
@@ -334,7 +343,7 @@ func (r *AnalysisReport) ToJSON() (string, error) {
 }
 
 // Save saves the report to disk based on configuration.
-func (r *AnalysisReport) Save(baseFilename string, enableTxt, enableJson, checkKey, checkRow, showFolderBreakdown bool) {
+func (r *AnalysisReport) Save(baseFilename string, enableTxt, enableJSON, checkKey, checkRow, showFolderBreakdown bool) {
 	if enableTxt {
 		summaryFilename := baseFilename + "_summary.txt"
 		detailsFilename := baseFilename + "_details.txt"
@@ -345,7 +354,7 @@ func (r *AnalysisReport) Save(baseFilename string, enableTxt, enableJson, checkK
 			log.Printf("Failed to save TXT details report to %s: %v", detailsFilename, err)
 		}
 	}
-	if enableJson {
+	if enableJSON {
 		filename := baseFilename + ".json"
 		jsonData, err := r.ToJSON()
 		if err != nil {
@@ -360,9 +369,9 @@ func (r *AnalysisReport) Save(baseFilename string, enableTxt, enableJson, checkK
 
 // SaveAndLog generates a timestamped filename inside the given logPath, saves the
 // report, and returns the base filename.
-func SaveAndLog(rep *AnalysisReport, logPath string, enableTxt, enableJson, checkKey, checkRow, showFolderBreakdown bool) string {
+func SaveAndLog(rep *AnalysisReport, logPath string, enableTxt, enableJSON, checkKey, checkRow, showFolderBreakdown bool) string {
 	baseName := "report-" + time.Now().Format("2006-01-02_15-04-05")
 	fullPathBase := filepath.Join(logPath, baseName)
-	rep.Save(fullPathBase, enableTxt, enableJson, checkKey, checkRow, showFolderBreakdown)
+	rep.Save(fullPathBase, enableTxt, enableJSON, checkKey, checkRow, showFolderBreakdown)
 	return fullPathBase
 }

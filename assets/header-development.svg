@@ -1,0 +1,14 @@
+<svg width="920" height="82" viewBox="0 0 920 82" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+      .label { font-family: "JetBrainsMono Nerd Font", "Hack Nerd Font", "CaskaydiaMono Nerd Font", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 23px; font-weight: 700; fill: #223039; }
+      .meta { font-family: "JetBrainsMono Nerd Font", "Hack Nerd Font", "CaskaydiaMono Nerd Font", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 11px; font-weight: 700; letter-spacing: 0.14em; fill: #18232A; }
+    ]]></style>
+  </defs>
+  <rect x="8" y="14" width="364" height="48" rx="14" fill="#BDAE99" />
+  <rect x="0" y="6" width="364" height="48" rx="14" fill="#FBF7F0" stroke="#D6C7B3" stroke-width="2" />
+  <rect x="22" y="0" width="112" height="18" rx="6" fill="#18232A" />
+  <text x="33" y="13" class="meta">SECTION</text>
+  <rect x="24" y="30" width="26" height="3" rx="1.5" fill="#18232A" />
+  <text x="62" y="35" class="label" dominant-baseline="middle">Development</text>
+</svg>

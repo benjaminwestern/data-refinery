@@ -85,7 +85,7 @@ func TestStateManager_SaveLoad(t *testing.T) {
 		s.Status = StatusRunning
 		s.TotalRows = 100
 		s.ProcessedFiles = 5
-		s.IdLocations["test_id"] = []report.LocationInfo{
+		s.IDLocations["test_id"] = []report.LocationInfo{
 			{FilePath: "/test/file1.json", LineNumber: 10},
 			{FilePath: "/test/file2.json", LineNumber: 20},
 		}
@@ -125,8 +125,8 @@ func TestStateManager_SaveLoad(t *testing.T) {
 		t.Errorf("Expected processed files 5, got %d", loadedState.ProcessedFiles)
 	}
 
-	if len(loadedState.IdLocations["test_id"]) != 2 {
-		t.Errorf("Expected 2 locations for test_id, got %d", len(loadedState.IdLocations["test_id"]))
+	if len(loadedState.IDLocations["test_id"]) != 2 {
+		t.Errorf("Expected 2 locations for test_id, got %d", len(loadedState.IDLocations["test_id"]))
 	}
 
 	// Check that state was loaded from file, not created new
@@ -211,7 +211,7 @@ func TestStateManager_StatusUpdates(t *testing.T) {
 	}
 
 	// Test status updates
-	statuses := []StateStatus{
+	statuses := []Status{
 		StatusRunning,
 		StatusPaused,
 		StatusRunning,
@@ -315,7 +315,7 @@ func TestStateManager_AdvancedFeatures(t *testing.T) {
 
 	// Update state with advanced features
 	err = sm.UpdateState(func(s *AnalysisState) error {
-		s.SearchResults = &search.SearchResults{
+		s.SearchResults = &search.Results{
 			Results: map[string][]search.MatchResult{
 				"test_target": {
 					{
@@ -327,20 +327,20 @@ func TestStateManager_AdvancedFeatures(t *testing.T) {
 					},
 				},
 			},
-			Summary: search.SearchSummary{
+			Summary: search.Summary{
 				TotalMatches:    1,
 				MatchesByTarget: map[string]int{"test_target": 1},
 				ProcessedRows:   100,
 			},
 		}
 
-		s.SchemaReport = &schema.SchemaReport{
+		s.SchemaReport = &schema.Report{
 			TotalRows:   100,
 			SampledRows: 10,
 			SampleRate:  0.1,
 		}
 
-		s.DeletionStats = &deletion.DeletionStats{
+		s.DeletionStats = &deletion.Stats{
 			TotalRows:     100,
 			ProcessedRows: 80,
 			DeletedRows:   20,

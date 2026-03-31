@@ -1,4 +1,4 @@
-// internal/state/state.go
+// Package state persists and restores long-running analysis session state.
 package state
 
 import (
@@ -15,6 +15,7 @@ import (
 	"github.com/benjaminwestern/data-refinery/internal/config"
 	"github.com/benjaminwestern/data-refinery/internal/deletion"
 	"github.com/benjaminwestern/data-refinery/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/safety"
 	"github.com/benjaminwestern/data-refinery/internal/schema"
 	"github.com/benjaminwestern/data-refinery/internal/search"
 )
@@ -25,7 +26,7 @@ const (
 	stateFileExtension    = ".state"
 )
 
-// AnalysisState represents the complete state of an analysis that can be persisted
+// AnalysisState represents the complete state of an analysis that can be persisted.
 type AnalysisState struct {
 	SessionID              string                           `json:"session_id"`
 	CreatedAt              time.Time                        `json:"created_at"`
@@ -36,7 +37,7 @@ type AnalysisState struct {
 	CheckKey               bool                             `json:"check_key"`
 	CheckRow               bool                             `json:"check_row"`
 	ValidateOnly           bool                             `json:"validate_only"`
-	IdLocations            map[string][]report.LocationInfo `json:"id_locations"`
+	IDLocations            map[string][]report.LocationInfo `json:"id_locations"`
 	RowHashes              map[string][]report.LocationInfo `json:"row_hashes"`
 	KeysFoundPerFolder     map[string]int64                 `json:"keys_found_per_folder"`
 	RowsProcessedPerFolder map[string]int64                 `json:"rows_processed_per_folder"`
@@ -46,18 +47,18 @@ type AnalysisState struct {
 	ProcessedPaths         map[string]bool                  `json:"processed_paths"`
 
 	// Advanced features state
-	SearchResults *search.SearchResults   `json:"search_results,omitempty"`
-	SchemaReport  *schema.SchemaReport    `json:"schema_report,omitempty"`
-	DeletionStats *deletion.DeletionStats `json:"deletion_stats,omitempty"`
+	SearchResults *search.Results `json:"search_results,omitempty"`
+	SchemaReport  *schema.Report  `json:"schema_report,omitempty"`
+	DeletionStats *deletion.Stats `json:"deletion_stats,omitempty"`
 
 	// Processing metadata
 	SourceMetadata  []SourceMetadata `json:"source_metadata"`
 	ProcessingStats ProcessingStats  `json:"processing_stats"`
 
 	// State status
-	Status    StateStatus  `json:"status"`
-	ErrorLog  []StateError `json:"error_log"`
-	LastError *StateError  `json:"last_error,omitempty"`
+	Status    Status  `json:"status"`
+	ErrorLog  []Error `json:"error_log"`
+	LastError *Error  `json:"last_error,omitempty"`
 
 	// Compression and versioning
 	Version    string `json:"version"`
@@ -65,7 +66,7 @@ type AnalysisState struct {
 	Checksum   string `json:"checksum"`
 }
 
-// SourceMetadata contains metadata about processed sources
+// SourceMetadata contains metadata about processed sources.
 type SourceMetadata struct {
 	Path        string    `json:"path"`
 	Dir         string    `json:"dir"`
@@ -76,7 +77,7 @@ type SourceMetadata struct {
 	ErrorCount  int       `json:"error_count"`
 }
 
-// ProcessingStats contains statistics about the processing run
+// ProcessingStats contains statistics about the processing run.
 type ProcessingStats struct {
 	StartTime             time.Time     `json:"start_time"`
 	EndTime               time.Time     `json:"end_time,omitempty"`
@@ -89,21 +90,22 @@ type ProcessingStats struct {
 	WorkerUtilization     float64       `json:"worker_utilization"`
 }
 
-// StateStatus represents the current status of the analysis
-type StateStatus string
+// Status represents the current status of the analysis.
+type Status string
 
+// Status values describe the lifecycle state of a persisted analysis session.
 const (
-	StatusPending    StateStatus = "pending"
-	StatusRunning    StateStatus = "running"
-	StatusPaused     StateStatus = "paused"
-	StatusCompleted  StateStatus = "completed"
-	StatusCancelled  StateStatus = "cancelled"
-	StatusError      StateStatus = "error"
-	StatusRecovering StateStatus = "recovering"
+	StatusPending    Status = "pending"
+	StatusRunning    Status = "running"
+	StatusPaused     Status = "paused"
+	StatusCompleted  Status = "completed"
+	StatusCancelled  Status = "cancelled"
+	StatusError      Status = "error"
+	StatusRecovering Status = "recovering"
 )
 
-// StateError represents an error that occurred during analysis
-type StateError struct {
+// Error represents an error that occurred during analysis.
+type Error struct {
 	Timestamp time.Time `json:"timestamp"`
 	Message   string    `json:"message"`
 	Type      string    `json:"type"`
@@ -112,8 +114,8 @@ type StateError struct {
 	Recovered bool      `json:"recovered"`
 }
 
-// StateManager manages the persistence and recovery of analysis state
-type StateManager struct {
+// Manager manages the persistence and recovery of analysis state.
+type Manager struct {
 	stateDir         string
 	sessionID        string
 	compressionLevel int
@@ -131,9 +133,9 @@ type StateManager struct {
 	onError        func(error)
 }
 
-// NewStateManager creates a new state manager with the specified configuration
-func NewStateManager(stateDir, sessionID string, options ...StateManagerOption) (*StateManager, error) {
-	sm := &StateManager{
+// NewStateManager creates a new state manager with the specified configuration.
+func NewStateManager(stateDir, sessionID string, options ...ManagerOption) (*Manager, error) {
+	sm := &Manager{
 		stateDir:         stateDir,
 		sessionID:        sessionID,
 		compressionLevel: 6, // Default compression level
@@ -155,46 +157,46 @@ func NewStateManager(stateDir, sessionID string, options ...StateManagerOption) 
 	return sm, nil
 }
 
-// StateManagerOption allows customization of the state manager
-type StateManagerOption func(*StateManager)
+// ManagerOption allows customization of the state manager.
+type ManagerOption func(*Manager)
 
-// WithCompressionLevel sets the compression level (0-9)
-func WithCompressionLevel(level int) StateManagerOption {
-	return func(sm *StateManager) {
+// WithCompressionLevel sets the compression level (0-9).
+func WithCompressionLevel(level int) ManagerOption {
+	return func(sm *Manager) {
 		sm.compressionLevel = level
 	}
 }
 
-// WithAutoSaveInterval sets the auto-save interval
-func WithAutoSaveInterval(interval time.Duration) StateManagerOption {
-	return func(sm *StateManager) {
+// WithAutoSaveInterval sets the auto-save interval.
+func WithAutoSaveInterval(interval time.Duration) ManagerOption {
+	return func(sm *Manager) {
 		sm.autoSaveInterval = interval
 	}
 }
 
-// WithMaxStateHistory sets the maximum number of state history files to keep
-func WithMaxStateHistory(max int) StateManagerOption {
-	return func(sm *StateManager) {
-		sm.maxStateHistory = max
+// WithMaxStateHistory sets the maximum number of state history files to keep.
+func WithMaxStateHistory(limit int) ManagerOption {
+	return func(sm *Manager) {
+		sm.maxStateHistory = limit
 	}
 }
 
-// WithStateChangedCallback sets a callback for state changes
-func WithStateChangedCallback(callback func(*AnalysisState)) StateManagerOption {
-	return func(sm *StateManager) {
+// WithStateChangedCallback sets a callback for state changes.
+func WithStateChangedCallback(callback func(*AnalysisState)) ManagerOption {
+	return func(sm *Manager) {
 		sm.onStateChanged = callback
 	}
 }
 
-// WithErrorCallback sets a callback for errors
-func WithErrorCallback(callback func(error)) StateManagerOption {
-	return func(sm *StateManager) {
+// WithErrorCallback sets a callback for errors.
+func WithErrorCallback(callback func(error)) ManagerOption {
+	return func(sm *Manager) {
 		sm.onError = callback
 	}
 }
 
-// InitializeState creates a new analysis state or loads an existing one
-func (sm *StateManager) InitializeState(ctx context.Context, cfg *config.Config) (*AnalysisState, error) {
+// InitializeState creates a new analysis state or loads an existing one.
+func (sm *Manager) InitializeState(_ context.Context, cfg *config.Config) (*AnalysisState, error) {
 	sm.stateMutex.Lock()
 	defer sm.stateMutex.Unlock()
 
@@ -218,7 +220,7 @@ func (sm *StateManager) InitializeState(ctx context.Context, cfg *config.Config)
 		CheckKey:               cfg.CheckKey,
 		CheckRow:               cfg.CheckRow,
 		ValidateOnly:           cfg.ValidateOnly,
-		IdLocations:            make(map[string][]report.LocationInfo),
+		IDLocations:            make(map[string][]report.LocationInfo),
 		RowHashes:              make(map[string][]report.LocationInfo),
 		KeysFoundPerFolder:     make(map[string]int64),
 		RowsProcessedPerFolder: make(map[string]int64),
@@ -228,7 +230,7 @@ func (sm *StateManager) InitializeState(ctx context.Context, cfg *config.Config)
 			StartTime: time.Now(),
 		},
 		Status:     StatusPending,
-		ErrorLog:   make([]StateError, 0),
+		ErrorLog:   make([]Error, 0),
 		Version:    "1.0.0",
 		Compressed: true,
 	}
@@ -237,8 +239,8 @@ func (sm *StateManager) InitializeState(ctx context.Context, cfg *config.Config)
 	return state, nil
 }
 
-// UpdateState updates the current state with new data
-func (sm *StateManager) UpdateState(updateFunc func(*AnalysisState) error) error {
+// UpdateState updates the current state with new data.
+func (sm *Manager) UpdateState(updateFunc func(*AnalysisState) error) error {
 	sm.stateMutex.Lock()
 	defer sm.stateMutex.Unlock()
 
@@ -262,8 +264,8 @@ func (sm *StateManager) UpdateState(updateFunc func(*AnalysisState) error) error
 	return nil
 }
 
-// SaveState persists the current state to disk
-func (sm *StateManager) SaveState() error {
+// SaveState persists the current state to disk.
+func (sm *Manager) SaveState() error {
 	sm.stateMutex.RLock()
 	defer sm.stateMutex.RUnlock()
 
@@ -274,8 +276,8 @@ func (sm *StateManager) SaveState() error {
 	return sm.saveState(sm.currentState)
 }
 
-// LoadState loads a specific state by timestamp
-func (sm *StateManager) LoadState(timestamp time.Time) (*AnalysisState, error) {
+// LoadState loads a specific state by timestamp.
+func (sm *Manager) LoadState(timestamp time.Time) (*AnalysisState, error) {
 	sm.stateMutex.Lock()
 	defer sm.stateMutex.Unlock()
 
@@ -289,8 +291,8 @@ func (sm *StateManager) LoadState(timestamp time.Time) (*AnalysisState, error) {
 	return state, nil
 }
 
-// GetCurrentState returns the current analysis state (thread-safe)
-func (sm *StateManager) GetCurrentState() *AnalysisState {
+// GetCurrentState returns the current analysis state (thread-safe).
+func (sm *Manager) GetCurrentState() *AnalysisState {
 	sm.stateMutex.RLock()
 	defer sm.stateMutex.RUnlock()
 
@@ -303,8 +305,8 @@ func (sm *StateManager) GetCurrentState() *AnalysisState {
 	return &stateCopy
 }
 
-// StartAutoSave begins automatic state saving at the configured interval
-func (sm *StateManager) StartAutoSave() {
+// StartAutoSave begins automatic state saving at the configured interval.
+func (sm *Manager) StartAutoSave() {
 	if sm.autoSaveTicker != nil {
 		sm.StopAutoSave()
 	}
@@ -327,8 +329,8 @@ func (sm *StateManager) StartAutoSave() {
 	}()
 }
 
-// StopAutoSave stops automatic state saving
-func (sm *StateManager) StopAutoSave() {
+// StopAutoSave stops automatic state saving.
+func (sm *Manager) StopAutoSave() {
 	if sm.autoSaveTicker != nil {
 		sm.autoSaveTicker.Stop()
 		sm.autoSaveTicker = nil
@@ -340,8 +342,8 @@ func (sm *StateManager) StopAutoSave() {
 	}
 }
 
-// ListStates returns a list of available state files
-func (sm *StateManager) ListStates() ([]time.Time, error) {
+// ListStates returns a list of available state files.
+func (sm *Manager) ListStates() ([]time.Time, error) {
 	files, err := os.ReadDir(sm.stateDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read state directory: %w", err)
@@ -364,8 +366,8 @@ func (sm *StateManager) ListStates() ([]time.Time, error) {
 	return timestamps, nil
 }
 
-// CleanupOldStates removes old state files beyond the maximum history
-func (sm *StateManager) CleanupOldStates() error {
+// CleanupOldStates removes old state files beyond the maximum history.
+func (sm *Manager) CleanupOldStates() error {
 	timestamps, err := sm.ListStates()
 	if err != nil {
 		return err
@@ -396,8 +398,8 @@ func (sm *StateManager) CleanupOldStates() error {
 	return nil
 }
 
-// RecoverFromState attempts to recover an analysis from a saved state
-func (sm *StateManager) RecoverFromState(timestamp time.Time) (*AnalysisState, error) {
+// RecoverFromState attempts to recover an analysis from a saved state.
+func (sm *Manager) RecoverFromState(timestamp time.Time) (*AnalysisState, error) {
 	state, err := sm.LoadState(timestamp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load state for recovery: %w", err)
@@ -408,7 +410,7 @@ func (sm *StateManager) RecoverFromState(timestamp time.Time) (*AnalysisState, e
 	state.UpdatedAt = time.Now()
 
 	// Add recovery entry to error log
-	state.ErrorLog = append(state.ErrorLog, StateError{
+	state.ErrorLog = append(state.ErrorLog, Error{
 		Timestamp: time.Now(),
 		Message:   "Recovery initiated",
 		Type:      "recovery",
@@ -420,8 +422,8 @@ func (sm *StateManager) RecoverFromState(timestamp time.Time) (*AnalysisState, e
 	return state, nil
 }
 
-// AddError adds an error to the state error log
-func (sm *StateManager) AddError(err error, errorType, source, severity string) {
+// AddError adds an error to the state error log.
+func (sm *Manager) AddError(err error, errorType, source, severity string) {
 	sm.stateMutex.Lock()
 	defer sm.stateMutex.Unlock()
 
@@ -429,7 +431,7 @@ func (sm *StateManager) AddError(err error, errorType, source, severity string) 
 		return
 	}
 
-	stateError := StateError{
+	stateError := Error{
 		Timestamp: time.Now(),
 		Message:   err.Error(),
 		Type:      errorType,
@@ -443,16 +445,16 @@ func (sm *StateManager) AddError(err error, errorType, source, severity string) 
 	sm.currentState.UpdatedAt = time.Now()
 }
 
-// UpdateProcessingStats updates the processing statistics
-func (sm *StateManager) UpdateProcessingStats(stats ProcessingStats) error {
+// UpdateProcessingStats updates the processing statistics.
+func (sm *Manager) UpdateProcessingStats(stats ProcessingStats) error {
 	return sm.UpdateState(func(state *AnalysisState) error {
 		state.ProcessingStats = stats
 		return nil
 	})
 }
 
-// UpdateStatus updates the analysis status
-func (sm *StateManager) UpdateStatus(status StateStatus) error {
+// UpdateStatus updates the analysis status.
+func (sm *Manager) UpdateStatus(status Status) error {
 	return sm.UpdateState(func(state *AnalysisState) error {
 		state.Status = status
 		return nil
@@ -461,7 +463,7 @@ func (sm *StateManager) UpdateStatus(status StateStatus) error {
 
 // Private helper methods
 
-func (sm *StateManager) saveState(state *AnalysisState) error {
+func (sm *Manager) saveState(state *AnalysisState) error {
 	filename := sm.getStateFilename(state.UpdatedAt)
 
 	// Create temporary file
@@ -470,7 +472,7 @@ func (sm *StateManager) saveState(state *AnalysisState) error {
 	if err != nil {
 		return fmt.Errorf("failed to create temporary state file: %w", err)
 	}
-	defer file.Close()
+	defer safety.Close(file, tempFile)
 
 	// Use compression if enabled
 	var encoder *json.Encoder
@@ -479,7 +481,7 @@ func (sm *StateManager) saveState(state *AnalysisState) error {
 		if err != nil {
 			return fmt.Errorf("failed to create gzip writer: %w", err)
 		}
-		defer gzipWriter.Close()
+		defer safety.Close(gzipWriter, tempFile)
 		encoder = json.NewEncoder(gzipWriter)
 	} else {
 		encoder = json.NewEncoder(file)
@@ -498,12 +500,12 @@ func (sm *StateManager) saveState(state *AnalysisState) error {
 	return nil
 }
 
-func (sm *StateManager) loadStateFromFile(filename string) (*AnalysisState, error) {
+func (sm *Manager) loadStateFromFile(filename string) (*AnalysisState, error) {
 	file, err := os.Open(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open state file: %w", err)
 	}
-	defer file.Close()
+	defer safety.Close(file, filename)
 
 	var decoder *json.Decoder
 
@@ -524,7 +526,7 @@ func (sm *StateManager) loadStateFromFile(filename string) (*AnalysisState, erro
 		if err != nil {
 			return nil, fmt.Errorf("failed to create gzip reader: %w", err)
 		}
-		defer gzipReader.Close()
+		defer safety.Close(gzipReader, filename)
 		decoder = json.NewDecoder(gzipReader)
 	} else {
 		decoder = json.NewDecoder(file)
@@ -538,7 +540,7 @@ func (sm *StateManager) loadStateFromFile(filename string) (*AnalysisState, erro
 	return &state, nil
 }
 
-func (sm *StateManager) loadLatestState() (*AnalysisState, error) {
+func (sm *Manager) loadLatestState() (*AnalysisState, error) {
 	timestamps, err := sm.ListStates()
 	if err != nil {
 		return nil, err
@@ -560,12 +562,12 @@ func (sm *StateManager) loadLatestState() (*AnalysisState, error) {
 	return sm.loadStateFromFile(filename)
 }
 
-func (sm *StateManager) getStateFilename(timestamp time.Time) string {
+func (sm *Manager) getStateFilename(timestamp time.Time) string {
 	return filepath.Join(sm.stateDir, fmt.Sprintf("%s_%s%s",
 		sm.sessionID, timestamp.Format(stateTimestampLayout), stateFileExtension))
 }
 
-func (sm *StateManager) parseStateFilename(filename string) (time.Time, error) {
+func (sm *Manager) parseStateFilename(filename string) (time.Time, error) {
 	base := filepath.Base(filename)
 	if !strings.HasSuffix(base, stateFileExtension) {
 		return time.Time{}, fmt.Errorf("invalid state filename format")
@@ -593,8 +595,8 @@ func (sm *StateManager) parseStateFilename(filename string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("invalid state filename format")
 }
 
-// Close properly shuts down the state manager
-func (sm *StateManager) Close() error {
+// Close properly shuts down the state manager.
+func (sm *Manager) Close() error {
 	sm.StopAutoSave()
 
 	// Save final state

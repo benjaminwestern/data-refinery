@@ -439,61 +439,8 @@ func TestParsePath(t *testing.T) {
 	}
 }
 
-func TestContains(t *testing.T) {
-	tests := []struct {
-		name     string
-		s        string
-		substr   string
-		expected bool
-	}{
-		{"exact match", "hello", "hello", true},
-		{"substring at start", "hello world", "hello", true},
-		{"substring at end", "hello world", "world", true},
-		{"substring in middle", "hello world", "lo wo", true},
-		{"no match", "hello", "xyz", false},
-		{"empty substring", "hello", "", true},
-		{"empty string", "", "hello", false},
-		{"both empty", "", "", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := contains(tt.s, tt.substr)
-			if result != tt.expected {
-				t.Errorf("Expected %v, got %v", tt.expected, result)
-			}
-		})
-	}
-}
-
-func TestFindSubstring(t *testing.T) {
-	tests := []struct {
-		name     string
-		s        string
-		substr   string
-		expected int
-	}{
-		{"found at start", "hello world", "hello", 0},
-		{"found at end", "hello world", "world", 6},
-		{"found in middle", "hello world", "lo wo", 3},
-		{"not found", "hello", "xyz", -1},
-		{"empty substring", "hello", "", 0},
-		{"empty string", "", "hello", -1},
-		{"both empty", "", "", 0},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := findSubstring(tt.s, tt.substr)
-			if result != tt.expected {
-				t.Errorf("Expected %d, got %d", tt.expected, result)
-			}
-		})
-	}
-}
-
 func TestNewDeletionReportGenerator(t *testing.T) {
-	stats := DeletionStats{
+	stats := Stats{
 		TotalRows:     100,
 		ProcessedRows: 90,
 		DeletedRows:   10,
@@ -516,10 +463,10 @@ func TestNewDeletionReportGenerator(t *testing.T) {
 }
 
 func TestDeletionReportGenerator_AddResult(t *testing.T) {
-	stats := DeletionStats{}
+	stats := Stats{}
 	generator := NewDeletionReportGenerator(stats)
 
-	result := DeletionResult{
+	result := Result{
 		Action:   "delete_row",
 		RuleName: "test_rule",
 	}
@@ -538,7 +485,7 @@ func TestDeletionReportGenerator_GenerateReport(t *testing.T) {
 	startTime := time.Now()
 	endTime := startTime.Add(time.Minute)
 
-	stats := DeletionStats{
+	stats := Stats{
 		TotalRows:     100,
 		ProcessedRows: 90,
 		DeletedRows:   10,
@@ -548,7 +495,7 @@ func TestDeletionReportGenerator_GenerateReport(t *testing.T) {
 
 	generator := NewDeletionReportGenerator(stats)
 
-	result := DeletionResult{
+	result := Result{
 		Action:   "delete_row",
 		RuleName: "test_rule",
 	}

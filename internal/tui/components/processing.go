@@ -1,4 +1,4 @@
-// internal/tui/components/processing.go
+// Package components provides reusable TUI building blocks and shared state.
 package components
 
 import (
@@ -8,6 +8,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/benjaminwestern/data-refinery/internal/state"
 )
 
 var (
@@ -15,20 +17,20 @@ var (
 	timingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 )
 
-// ProcessingComponent handles the analysis processing view
+// ProcessingComponent handles the analysis processing view.
 type ProcessingComponent struct {
-	BaseComponent
+	baseComponent
 	state *SharedState
 }
 
-// NewProcessingComponent creates a new processing component
+// NewProcessingComponent creates a new processing component.
 func NewProcessingComponent(state *SharedState) *ProcessingComponent {
 	return &ProcessingComponent{
 		state: state,
 	}
 }
 
-// Update handles messages for the processing component
+// Update handles messages for the processing component.
 func (p *ProcessingComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -43,7 +45,7 @@ func (p *ProcessingComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 	return p, nil
 }
 
-// View renders the processing component
+// View renders the processing component.
 func (p *ProcessingComponent) View() string {
 	var b strings.Builder
 
@@ -72,25 +74,22 @@ func (p *ProcessingComponent) View() string {
 	}
 
 	// Show processing statistics if available
-	if p.state.StateManager != nil {
-		currentState := p.state.StateManager.GetCurrentState()
-		if currentState != nil {
-			stats := currentState.ProcessingStats
-			if stats.TotalBytesProcessed > 0 {
-				b.WriteString(fmt.Sprintf("Bytes processed: %d\n", stats.TotalBytesProcessed))
-			}
-			if stats.ProcessingRate > 0 {
-				b.WriteString(fmt.Sprintf("Processing rate: %.2f bytes/sec\n", stats.ProcessingRate))
-			}
-			if stats.TotalErrorsRecovered > 0 {
-				b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("202")).Render(
-					fmt.Sprintf("Errors recovered: %d\n", stats.TotalErrorsRecovered)))
-			}
-			if stats.WorkerUtilization > 0 {
-				b.WriteString(fmt.Sprintf("Worker utilization: %.1f%%\n", stats.WorkerUtilization*100))
-			}
-			b.WriteString("\n")
+	if currentState := p.currentAnalysisState(); currentState != nil {
+		stats := currentState.ProcessingStats
+		if stats.TotalBytesProcessed > 0 {
+			fmt.Fprintf(&b, "Bytes processed: %d\n", stats.TotalBytesProcessed)
 		}
+		if stats.ProcessingRate > 0 {
+			fmt.Fprintf(&b, "Processing rate: %.2f bytes/sec\n", stats.ProcessingRate)
+		}
+		if stats.TotalErrorsRecovered > 0 {
+			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("202")).Render(
+				fmt.Sprintf("Errors recovered: %d\n", stats.TotalErrorsRecovered)))
+		}
+		if stats.WorkerUtilization > 0 {
+			fmt.Fprintf(&b, "Worker utilization: %.1f%%\n", stats.WorkerUtilization*100)
+		}
+		b.WriteString("\n")
 	}
 	// Show spinner or progress if available
 	if p.state.Analyser != nil {
@@ -104,7 +103,15 @@ func (p *ProcessingComponent) View() string {
 	return b.String()
 }
 
-// Init initializes the processing component
+// Init initializes the processing component.
 func (p *ProcessingComponent) Init() tea.Cmd {
 	return nil
+}
+
+func (p *ProcessingComponent) currentAnalysisState() *state.AnalysisState {
+	if p.state.StateManager == nil {
+		return nil
+	}
+
+	return p.state.StateManager.GetCurrentState()
 }

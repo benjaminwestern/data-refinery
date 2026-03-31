@@ -636,11 +636,11 @@ func TestAnalyserDeletionDoesNotDuplicateSearchMatches(t *testing.T) {
 		t.Fatal("Expected report to be non-nil")
 	}
 
-	var searchResults *search.SearchResults
+	var searchResults *search.Results
 	switch typed := rep.SearchResults.(type) {
-	case *search.SearchResults:
+	case *search.Results:
 		searchResults = typed
-	case search.SearchResults:
+	case search.Results:
 		searchResults = &typed
 	}
 	if searchResults == nil {
@@ -651,11 +651,11 @@ func TestAnalyserDeletionDoesNotDuplicateSearchMatches(t *testing.T) {
 		t.Fatalf("Expected exactly 1 accumulated search match, got %d", searchResults.Summary.TotalMatches)
 	}
 
-	var deletionStats *deletion.DeletionStats
+	var deletionStats *deletion.Stats
 	switch typed := rep.DeletionStats.(type) {
-	case *deletion.DeletionStats:
+	case *deletion.Stats:
 		deletionStats = typed
-	case deletion.DeletionStats:
+	case deletion.Stats:
 		deletionStats = &typed
 	}
 	if deletionStats == nil {

@@ -94,7 +94,7 @@ func TestCreateMatcher(t *testing.T) {
 }
 
 func TestDirectMatcher_Match(t *testing.T) {
-	matcher := &DirectMatcher{}
+	matcher := &directMatcher{}
 
 	target := config.SearchTarget{
 		Name:          "test_id",
@@ -147,7 +147,7 @@ func TestDirectMatcher_Match(t *testing.T) {
 }
 
 func TestDirectMatcher_CaseInsensitive(t *testing.T) {
-	matcher := &DirectMatcher{}
+	matcher := &directMatcher{}
 
 	target := config.SearchTarget{
 		Name:          "test_name",
@@ -175,7 +175,7 @@ func TestDirectMatcher_CaseInsensitive(t *testing.T) {
 }
 
 func TestNestedArrayMatcher_Match(t *testing.T) {
-	matcher := &NestedArrayMatcher{}
+	matcher := &nestedArrayMatcher{}
 
 	target := config.SearchTarget{
 		Name:          "test_items",
@@ -217,7 +217,7 @@ func TestNestedArrayMatcher_Match(t *testing.T) {
 }
 
 func TestNestedArrayMatcher_NoArray(t *testing.T) {
-	matcher := &NestedArrayMatcher{}
+	matcher := &nestedArrayMatcher{}
 
 	target := config.SearchTarget{
 		Name:          "test_items",
@@ -249,7 +249,7 @@ func TestNestedArrayMatcher_NoArray(t *testing.T) {
 }
 
 func TestNestedObjectMatcher_Match(t *testing.T) {
-	matcher := &NestedObjectMatcher{}
+	matcher := &nestedObjectMatcher{}
 
 	target := config.SearchTarget{
 		Name:          "test_nested",
@@ -284,7 +284,7 @@ func TestNestedObjectMatcher_Match(t *testing.T) {
 }
 
 func TestNestedObjectMatcher_MissingPath(t *testing.T) {
-	matcher := &NestedObjectMatcher{}
+	matcher := &nestedObjectMatcher{}
 
 	target := config.SearchTarget{
 		Name:          "test_nested",
@@ -308,7 +308,7 @@ func TestNestedObjectMatcher_MissingPath(t *testing.T) {
 }
 
 func TestJSONPathMatcher_SimpleMatch(t *testing.T) {
-	matcher := &JSONPathMatcher{}
+	matcher := &jsonPathMatcher{}
 
 	target := config.SearchTarget{
 		Name:          "test_path",
@@ -335,7 +335,7 @@ func TestJSONPathMatcher_SimpleMatch(t *testing.T) {
 }
 
 func TestJSONPathMatcher_WildcardMatch(t *testing.T) {
-	matcher := &JSONPathMatcher{}
+	matcher := &jsonPathMatcher{}
 
 	target := config.SearchTarget{
 		Name:          "test_wildcard",
@@ -566,7 +566,7 @@ func TestUtilityMatcher_MatchType(t *testing.T) {
 }
 
 func TestMatchValue_CaseSensitive(t *testing.T) {
-	dm := &DirectMatcher{}
+	dm := &directMatcher{}
 
 	if !dm.matchValue("Test", "Test", true) {
 		t.Error("Expected exact match to succeed")
@@ -580,7 +580,7 @@ func TestMatchValue_CaseSensitive(t *testing.T) {
 }
 
 func TestJSONPathMatcher_EvaluateSimplePath(t *testing.T) {
-	matcher := &JSONPathMatcher{}
+	matcher := &jsonPathMatcher{}
 
 	data := report.JSONData{
 		"user": map[string]any{

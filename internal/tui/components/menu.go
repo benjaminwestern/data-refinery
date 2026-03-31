@@ -1,4 +1,4 @@
-// internal/tui/components/menu.go
+// Package components provides reusable TUI building blocks and shared state.
 package components
 
 import (
@@ -16,22 +16,22 @@ var (
 	helpStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Italic(true).Margin(1, 0)
 )
 
-// MenuComponent handles the main menu interface
+// MenuComponent handles the main menu interface.
 type MenuComponent struct {
-	BaseComponent
+	baseComponent
 	state  *SharedState
 	cursor int
 	items  []MenuItem
 }
 
-// MenuItem represents a menu item
+// MenuItem represents a menu item.
 type MenuItem struct {
 	Label       string
 	Description string
 	Action      func() tea.Cmd
 }
 
-// NewMenuComponent creates a new menu component
+// NewMenuComponent creates a new menu component.
 func NewMenuComponent(state *SharedState) *MenuComponent {
 	menu := &MenuComponent{
 		state:  state,
@@ -102,7 +102,7 @@ func NewMenuComponent(state *SharedState) *MenuComponent {
 	return menu
 }
 
-// Update handles messages for the menu component
+// Update handles messages for the menu component.
 func (m *MenuComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -124,7 +124,7 @@ func (m *MenuComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the menu component
+// View renders the menu component.
 func (m *MenuComponent) View() string {
 	var b strings.Builder
 
@@ -180,17 +180,17 @@ func (m *MenuComponent) View() string {
 	return b.String()
 }
 
-// Init initializes the menu component
+// Init initializes the menu component.
 func (m *MenuComponent) Init() tea.Cmd {
 	return nil
 }
 
-// GetCursor returns the current cursor position
+// GetCursor returns the current cursor position.
 func (m *MenuComponent) GetCursor() int {
 	return m.cursor
 }
 
-// SetCursor sets the cursor position
+// SetCursor sets the cursor position.
 func (m *MenuComponent) SetCursor(cursor int) {
 	if cursor >= 0 && cursor < len(m.items) {
 		m.cursor = cursor

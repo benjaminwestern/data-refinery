@@ -3,108 +3,106 @@ package processing
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
+
+	"github.com/benjaminwestern/data-refinery/internal/safety"
 )
 
-var (
-	ErrDegradationActive     = errors.New("system is in degraded mode")
-	ErrDegradationDisabled   = errors.New("graceful degradation is disabled")
-	ErrDegradationNotAllowed = errors.New("degradation not allowed for this operation")
-	ErrFeatureUnavailable    = errors.New("feature is currently unavailable")
-)
+var errDegradationDisabled = errors.New("graceful degradation is disabled")
 
-// DegradationLevel represents the level of degradation
+// DegradationLevel represents the level of degradation.
 type DegradationLevel int
 
 const (
-	DegradationNone DegradationLevel = iota
-	DegradationMinimal
-	DegradationPartial
-	DegradationSignificant
-	DegradationSevere
-	DegradationEmergency
+	degradationNone DegradationLevel = iota
+	degradationMinimal
+	degradationPartial
+	degradationSignificant
+	degradationSevere
+	degradationEmergency
 )
 
 func (d DegradationLevel) String() string {
 	switch d {
-	case DegradationNone:
+	case degradationNone:
 		return "NONE"
-	case DegradationMinimal:
+	case degradationMinimal:
 		return "MINIMAL"
-	case DegradationPartial:
+	case degradationPartial:
 		return "PARTIAL"
-	case DegradationSignificant:
+	case degradationSignificant:
 		return "SIGNIFICANT"
-	case DegradationSevere:
+	case degradationSevere:
 		return "SEVERE"
-	case DegradationEmergency:
+	case degradationEmergency:
 		return "EMERGENCY"
 	default:
-		return "UNKNOWN"
+		return unknownLabel
 	}
 }
 
-// DegradationMode defines how the system should behave in degraded mode
+// DegradationMode defines how the system should behave in degraded mode.
 type DegradationMode int
 
 const (
-	ModeReducedFunctionality DegradationMode = iota
-	ModeEssentialOnly
-	ModeReadOnly
-	ModeFailfast
-	ModeOffline
+	modeReducedFunctionality DegradationMode = iota
+	modeEssentialOnly
+	modeReadOnly
+	modeFailfast
+	modeOffline
 )
 
 func (m DegradationMode) String() string {
 	switch m {
-	case ModeReducedFunctionality:
+	case modeReducedFunctionality:
 		return "REDUCED_FUNCTIONALITY"
-	case ModeEssentialOnly:
+	case modeEssentialOnly:
 		return "ESSENTIAL_ONLY"
-	case ModeReadOnly:
+	case modeReadOnly:
 		return "READ_ONLY"
-	case ModeFailfast:
+	case modeFailfast:
 		return "FAILFAST"
-	case ModeOffline:
+	case modeOffline:
 		return "OFFLINE"
 	default:
-		return "UNKNOWN"
+		return unknownLabel
 	}
 }
 
-// DegradationTrigger defines what triggers degradation
+// DegradationTrigger defines what triggers degradation.
 type DegradationTrigger int
 
 const (
-	TriggerErrorRate DegradationTrigger = iota
-	TriggerLatency
-	TriggerResourceUsage
-	TriggerDependencyFailure
-	TriggerManual
-	TriggerCircuitBreaker
+	triggerErrorRate DegradationTrigger = iota
+	triggerLatency
+	triggerResourceUsage
+	triggerDependencyFailure
+	triggerManual
+	triggerCircuitBreaker
 )
 
 func (t DegradationTrigger) String() string {
 	switch t {
-	case TriggerErrorRate:
+	case triggerErrorRate:
 		return "ERROR_RATE"
-	case TriggerLatency:
+	case triggerLatency:
 		return "LATENCY"
-	case TriggerResourceUsage:
+	case triggerResourceUsage:
 		return "RESOURCE_USAGE"
-	case TriggerDependencyFailure:
+	case triggerDependencyFailure:
 		return "DEPENDENCY_FAILURE"
-	case TriggerManual:
+	case triggerManual:
 		return "MANUAL"
-	case TriggerCircuitBreaker:
+	case triggerCircuitBreaker:
 		return "CIRCUIT_BREAKER"
 	default:
-		return "UNKNOWN"
+		return unknownLabel
 	}
 }
 
-// DegradationRule defines when and how to degrade
+// DegradationRule defines when and how to degrade.
 type DegradationRule struct {
 	Name      string
 	Trigger   DegradationTrigger
@@ -118,7 +116,7 @@ type DegradationRule struct {
 	Metadata  map[string]interface{}
 }
 
-// DegradationAction defines what action to take
+// DegradationAction defines what action to take.
 type DegradationAction struct {
 	Type          DegradationActionType
 	Features      []string
@@ -128,44 +126,44 @@ type DegradationAction struct {
 	Description   string
 }
 
-// DegradationActionType defines the type of degradation action
+// DegradationActionType defines the type of degradation action.
 type DegradationActionType int
 
 const (
-	ActionDisableFeatures DegradationActionType = iota
-	ActionReducePerformance
-	ActionReduceAccuracy
-	ActionSimplifyCaching
-	ActionLimitConnections
-	ActionSkipProcessing
-	ActionUseDefaults
-	ActionEnableReadOnly
+	actionDisableFeatures DegradationActionType = iota
+	actionReducePerformance
+	actionReduceAccuracy
+	actionSimplifyCaching
+	actionLimitConnections
+	actionSkipProcessing
+	actionUseDefaults
+	actionEnableReadOnly
 )
 
 func (a DegradationActionType) String() string {
 	switch a {
-	case ActionDisableFeatures:
+	case actionDisableFeatures:
 		return "DISABLE_FEATURES"
-	case ActionReducePerformance:
+	case actionReducePerformance:
 		return "REDUCE_PERFORMANCE"
-	case ActionReduceAccuracy:
+	case actionReduceAccuracy:
 		return "REDUCE_ACCURACY"
-	case ActionSimplifyCaching:
+	case actionSimplifyCaching:
 		return "SIMPLIFY_CACHING"
-	case ActionLimitConnections:
+	case actionLimitConnections:
 		return "LIMIT_CONNECTIONS"
-	case ActionSkipProcessing:
+	case actionSkipProcessing:
 		return "SKIP_PROCESSING"
-	case ActionUseDefaults:
+	case actionUseDefaults:
 		return "USE_DEFAULTS"
-	case ActionEnableReadOnly:
+	case actionEnableReadOnly:
 		return "ENABLE_READ_ONLY"
 	default:
-		return "UNKNOWN"
+		return unknownLabel
 	}
 }
 
-// PerformanceLimits defines performance limits during degradation
+// PerformanceLimits defines performance limits during degradation.
 type PerformanceLimits struct {
 	MaxConcurrency   int
 	MaxThroughput    int
@@ -178,7 +176,7 @@ type PerformanceLimits struct {
 	UseApproximation bool
 }
 
-// SystemMetrics contains system health metrics
+// SystemMetrics contains system health metrics.
 type SystemMetrics struct {
 	ErrorRate         float64
 	AverageLatency    time.Duration
@@ -192,7 +190,7 @@ type SystemMetrics struct {
 	Timestamp         time.Time
 }
 
-// DegradationStatus represents the current degradation status
+// DegradationStatus represents the current degradation status.
 type DegradationStatus struct {
 	Active           bool
 	Level            DegradationLevel
@@ -207,7 +205,7 @@ type DegradationStatus struct {
 	RecoveryProgress float64
 }
 
-// GracefulDegradationManager manages graceful degradation
+// GracefulDegradationManager manages graceful degradation.
 type GracefulDegradationManager struct {
 	// Configuration
 	rules         []DegradationRule
@@ -247,7 +245,7 @@ type GracefulDegradationManager struct {
 	ruleActivationCount  map[string]uint64
 }
 
-// GracefulDegradationConfig holds configuration for graceful degradation
+// GracefulDegradationConfig holds configuration for graceful degradation.
 type GracefulDegradationConfig struct {
 	Enabled            bool
 	AutoRecovery       bool
@@ -258,7 +256,7 @@ type GracefulDegradationConfig struct {
 	Callbacks          DegradationCallbacks
 }
 
-// DegradationCallbacks holds callback functions
+// DegradationCallbacks holds callback functions.
 type DegradationCallbacks struct {
 	OnDegradationStart func(status DegradationStatus)
 	OnDegradationEnd   func(status DegradationStatus)
@@ -266,7 +264,7 @@ type DegradationCallbacks struct {
 	OnModeChange       func(from, to DegradationMode)
 }
 
-// DefaultGracefulDegradationConfig returns default configuration
+// DefaultGracefulDegradationConfig returns default configuration.
 func DefaultGracefulDegradationConfig() GracefulDegradationConfig {
 	return GracefulDegradationConfig{
 		Enabled:            true,
@@ -287,63 +285,63 @@ func DefaultGracefulDegradationConfig() GracefulDegradationConfig {
 		Rules: []DegradationRule{
 			{
 				Name:    "high_error_rate",
-				Trigger: TriggerErrorRate,
+				Trigger: triggerErrorRate,
 				Condition: func(metrics *SystemMetrics) bool {
 					return metrics.ErrorRate > 0.1 // 10% error rate
 				},
 				Action: DegradationAction{
-					Type:        ActionReducePerformance,
+					Type:        actionReducePerformance,
 					Description: "Reduce performance due to high error rate",
 				},
-				Level:    DegradationMinimal,
-				Mode:     ModeReducedFunctionality,
+				Level:    degradationMinimal,
+				Mode:     modeReducedFunctionality,
 				Duration: 5 * time.Minute,
 				Priority: 1,
 				Enabled:  true,
 			},
 			{
 				Name:    "high_latency",
-				Trigger: TriggerLatency,
+				Trigger: triggerLatency,
 				Condition: func(metrics *SystemMetrics) bool {
 					return metrics.P95Latency > 10*time.Second
 				},
 				Action: DegradationAction{
-					Type:        ActionReduceAccuracy,
+					Type:        actionReduceAccuracy,
 					Description: "Reduce accuracy due to high latency",
 				},
-				Level:    DegradationPartial,
-				Mode:     ModeReducedFunctionality,
+				Level:    degradationPartial,
+				Mode:     modeReducedFunctionality,
 				Duration: 10 * time.Minute,
 				Priority: 2,
 				Enabled:  true,
 			},
 			{
 				Name:    "resource_exhaustion",
-				Trigger: TriggerResourceUsage,
+				Trigger: triggerResourceUsage,
 				Condition: func(metrics *SystemMetrics) bool {
 					return metrics.CPUUsage > 0.9 || metrics.MemoryUsage > 966367641 // 0.9 GB
 				},
 				Action: DegradationAction{
-					Type:        ActionLimitConnections,
+					Type:        actionLimitConnections,
 					Description: "Limit connections due to resource exhaustion",
 				},
-				Level:    DegradationSignificant,
-				Mode:     ModeEssentialOnly,
+				Level:    degradationSignificant,
+				Mode:     modeEssentialOnly,
 				Duration: 15 * time.Minute,
 				Priority: 3,
 				Enabled:  true,
 			},
 		},
 		Callbacks: DegradationCallbacks{
-			OnDegradationStart: func(status DegradationStatus) {},
-			OnDegradationEnd:   func(status DegradationStatus) {},
-			OnLevelChange:      func(from, to DegradationLevel) {},
-			OnModeChange:       func(from, to DegradationMode) {},
+			OnDegradationStart: func(_ DegradationStatus) {},
+			OnDegradationEnd:   func(_ DegradationStatus) {},
+			OnLevelChange:      func(_, _ DegradationLevel) {},
+			OnModeChange:       func(_, _ DegradationMode) {},
 		},
 	}
 }
 
-// NewGracefulDegradationManager creates a new graceful degradation manager
+// NewGracefulDegradationManager creates a new graceful degradation manager.
 func NewGracefulDegradationManager(config GracefulDegradationConfig) *GracefulDegradationManager {
 	gdm := &GracefulDegradationManager{
 		rules:               config.Rules,
@@ -351,8 +349,8 @@ func NewGracefulDegradationManager(config GracefulDegradationConfig) *GracefulDe
 		enabled:             config.Enabled,
 		autoRecovery:        config.AutoRecovery,
 		recoveryDelay:       config.RecoveryDelay,
-		currentLevel:        DegradationNone,
-		currentMode:         ModeReducedFunctionality,
+		currentLevel:        degradationNone,
+		currentMode:         modeReducedFunctionality,
 		activeRules:         make(map[string]bool),
 		disabledFeatures:    make(map[string]bool),
 		metricsCollector:    NewMetricsCollector(),
@@ -377,7 +375,7 @@ func NewGracefulDegradationManager(config GracefulDegradationConfig) *GracefulDe
 	return gdm
 }
 
-// startMonitoring starts the degradation monitoring loop
+// startMonitoring starts the degradation monitoring loop.
 func (gdm *GracefulDegradationManager) startMonitoring(interval time.Duration) {
 	gdm.stopWg.Add(1)
 	go func() {
@@ -397,7 +395,7 @@ func (gdm *GracefulDegradationManager) startMonitoring(interval time.Duration) {
 	}()
 }
 
-// checkDegradationConditions checks if degradation should be triggered
+// checkDegradationConditions checks if degradation should be triggered.
 func (gdm *GracefulDegradationManager) checkDegradationConditions() {
 	if !gdm.enabled {
 		return
@@ -424,14 +422,14 @@ func (gdm *GracefulDegradationManager) checkDegradationConditions() {
 
 	// Determine if degradation should be activated
 	if len(triggeredRules) > 0 {
-		gdm.activateDegradation(triggeredRules, metrics)
-	} else if gdm.autoRecovery && gdm.currentLevel != DegradationNone {
+		gdm.activateDegradation(triggeredRules)
+	} else if gdm.autoRecovery && gdm.currentLevel != degradationNone {
 		gdm.checkRecovery(metrics)
 	}
 }
 
-// activateDegradation activates degradation based on triggered rules
-func (gdm *GracefulDegradationManager) activateDegradation(rules []DegradationRule, metrics *SystemMetrics) {
+// activateDegradation activates degradation based on triggered rules.
+func (gdm *GracefulDegradationManager) activateDegradation(rules []DegradationRule) {
 	// Find the highest priority rule
 	var highestPriorityRule *DegradationRule
 	for i, rule := range rules {
@@ -448,98 +446,67 @@ func (gdm *GracefulDegradationManager) activateDegradation(rules []DegradationRu
 	previousLevel := gdm.currentLevel
 	previousMode := gdm.currentMode
 
-	if highestPriorityRule.Level != gdm.currentLevel {
-		gdm.currentLevel = highestPriorityRule.Level
-		gdm.currentMode = highestPriorityRule.Mode
-		gdm.currentTrigger = highestPriorityRule.Trigger
-
-		// Record activation
-		gdm.ruleActivationCount[highestPriorityRule.Name]++
-
-		// If this is the start of degradation
-		if previousLevel == DegradationNone {
-			gdm.degradationStart = time.Now()
-			gdm.degradationCount++
-
-			// Notify start of degradation
-			if gdm.onDegradationStart != nil {
-				status := gdm.getCurrentStatus()
-				gdm.onDegradationStart(status)
-			}
-		}
-
-		// Notify level change
-		if gdm.onLevelChange != nil && previousLevel != gdm.currentLevel {
-			gdm.onLevelChange(previousLevel, gdm.currentLevel)
-		}
-
-		// Notify mode change
-		if gdm.onModeChange != nil && previousMode != gdm.currentMode {
-			gdm.onModeChange(previousMode, gdm.currentMode)
-		}
-
-		// Update active rules
-		gdm.activeRules[highestPriorityRule.Name] = true
-
-		// Apply degradation action
-		gdm.applyDegradationAction(highestPriorityRule.Action)
+	if highestPriorityRule.Level == gdm.currentLevel {
+		return
 	}
+
+	gdm.currentLevel = highestPriorityRule.Level
+	gdm.currentMode = highestPriorityRule.Mode
+	gdm.currentTrigger = highestPriorityRule.Trigger
+	gdm.ruleActivationCount[highestPriorityRule.Name]++
+	gdm.recordDegradationStart(previousLevel)
+	gdm.notifyDegradationTransition(previousLevel, previousMode)
+	gdm.activeRules[highestPriorityRule.Name] = true
+	gdm.applyDegradationAction(highestPriorityRule.Action)
 }
 
-// applyDegradationAction applies a degradation action
+// applyDegradationAction applies a degradation action.
 func (gdm *GracefulDegradationManager) applyDegradationAction(action DegradationAction) {
 	switch action.Type {
-	case ActionDisableFeatures:
+	case actionDisableFeatures:
 		for _, feature := range action.Features {
 			gdm.disabledFeatures[feature] = true
 		}
-	case ActionReducePerformance:
+	case actionReducePerformance:
 		if action.Limits != nil {
 			gdm.globalLimits = action.Limits
 		}
-	case ActionReduceAccuracy:
+	case actionReduceAccuracy:
 		if action.Limits != nil {
 			gdm.globalLimits.UseApproximation = action.Limits.UseApproximation
 		}
-	case ActionSimplifyCaching:
+	case actionSimplifyCaching:
 		if action.Limits != nil {
 			gdm.globalLimits.SimplifiedLogic = action.Limits.SimplifiedLogic
 		}
-	case ActionLimitConnections:
+	case actionLimitConnections:
 		if action.Limits != nil {
 			gdm.globalLimits.MaxConcurrency = action.Limits.MaxConcurrency
 		}
-	case ActionSkipProcessing:
+	case actionSkipProcessing:
 		if action.Limits != nil {
 			gdm.globalLimits.SkipValidation = action.Limits.SkipValidation
 		}
-	case ActionUseDefaults:
+	case actionUseDefaults:
 		// Use default values for processing
-	case ActionEnableReadOnly:
+	case actionEnableReadOnly:
 		// Enable read-only mode
 	}
 }
 
-// checkRecovery checks if the system can recover from degradation
+// checkRecovery checks if the system can recover from degradation.
 func (gdm *GracefulDegradationManager) checkRecovery(metrics *SystemMetrics) {
 	// Check if recovery conditions are met
 	canRecover := true
 
 	for ruleName := range gdm.activeRules {
 		rule := gdm.findRuleByName(ruleName)
-		if rule != nil {
-			if rule.Action.RecoveryCheck != nil {
-				if !rule.Action.RecoveryCheck(context.Background(), metrics) {
-					canRecover = false
-					break
-				}
-			} else {
-				// Default recovery check: condition should not be true
-				if rule.Condition(metrics) {
-					canRecover = false
-					break
-				}
-			}
+		if rule == nil {
+			continue
+		}
+		if gdm.recoveryBlocked(rule, metrics) {
+			canRecover = false
+			break
 		}
 	}
 
@@ -551,15 +518,45 @@ func (gdm *GracefulDegradationManager) checkRecovery(metrics *SystemMetrics) {
 	}
 }
 
-// recover recovers from degradation
+func (gdm *GracefulDegradationManager) recordDegradationStart(previousLevel DegradationLevel) {
+	if previousLevel != degradationNone {
+		return
+	}
+
+	gdm.degradationStart = time.Now()
+	gdm.degradationCount++
+
+	if gdm.onDegradationStart != nil {
+		gdm.onDegradationStart(gdm.getCurrentStatus())
+	}
+}
+
+func (gdm *GracefulDegradationManager) notifyDegradationTransition(previousLevel DegradationLevel, previousMode DegradationMode) {
+	if gdm.onLevelChange != nil && previousLevel != gdm.currentLevel {
+		gdm.onLevelChange(previousLevel, gdm.currentLevel)
+	}
+	if gdm.onModeChange != nil && previousMode != gdm.currentMode {
+		gdm.onModeChange(previousMode, gdm.currentMode)
+	}
+}
+
+func (gdm *GracefulDegradationManager) recoveryBlocked(rule *DegradationRule, metrics *SystemMetrics) bool {
+	if rule.Action.RecoveryCheck != nil {
+		return !rule.Action.RecoveryCheck(context.Background(), metrics)
+	}
+
+	return rule.Condition(metrics)
+}
+
+// recover recovers from degradation.
 func (gdm *GracefulDegradationManager) recover() {
 	previousLevel := gdm.currentLevel
 	previousMode := gdm.currentMode
 
 	// Reset degradation state
-	gdm.currentLevel = DegradationNone
-	gdm.currentMode = ModeReducedFunctionality
-	gdm.currentTrigger = TriggerManual
+	gdm.currentLevel = degradationNone
+	gdm.currentMode = modeReducedFunctionality
+	gdm.currentTrigger = triggerManual
 
 	// Clear active rules and disabled features
 	gdm.activeRules = make(map[string]bool)
@@ -576,12 +573,12 @@ func (gdm *GracefulDegradationManager) recover() {
 
 	// Update average degradation time
 	if gdm.degradationCount > 0 {
-		gdm.avgDegradationTime = gdm.totalDegradationTime / time.Duration(gdm.degradationCount)
+		gdm.avgDegradationTime = gdm.totalDegradationTime / safety.SaturatingDuration(gdm.degradationCount)
 	}
 
 	// Update average recovery time
 	if gdm.recoveryCount > 0 {
-		gdm.avgRecoveryTime = gdm.totalDegradationTime / time.Duration(gdm.recoveryCount)
+		gdm.avgRecoveryTime = gdm.totalDegradationTime / safety.SaturatingDuration(gdm.recoveryCount)
 	}
 
 	// Notify recovery
@@ -601,7 +598,7 @@ func (gdm *GracefulDegradationManager) recover() {
 	}
 }
 
-// findRuleByName finds a rule by name
+// findRuleByName finds a rule by name.
 func (gdm *GracefulDegradationManager) findRuleByName(name string) *DegradationRule {
 	for i, rule := range gdm.rules {
 		if rule.Name == name {
@@ -611,7 +608,7 @@ func (gdm *GracefulDegradationManager) findRuleByName(name string) *DegradationR
 	return nil
 }
 
-// getCurrentStatus returns the current degradation status
+// getCurrentStatus returns the current degradation status.
 func (gdm *GracefulDegradationManager) getCurrentStatus() DegradationStatus {
 	activeRules := make([]string, 0, len(gdm.activeRules))
 	for rule := range gdm.activeRules {
@@ -624,12 +621,12 @@ func (gdm *GracefulDegradationManager) getCurrentStatus() DegradationStatus {
 	}
 
 	var estimatedEnd time.Time
-	if gdm.currentLevel != DegradationNone {
+	if gdm.currentLevel != degradationNone {
 		estimatedEnd = gdm.degradationStart.Add(gdm.avgDegradationTime)
 	}
 
 	return DegradationStatus{
-		Active:           gdm.currentLevel != DegradationNone,
+		Active:           gdm.currentLevel != degradationNone,
 		Level:            gdm.currentLevel,
 		Mode:             gdm.currentMode,
 		Trigger:          gdm.currentTrigger,
@@ -642,9 +639,9 @@ func (gdm *GracefulDegradationManager) getCurrentStatus() DegradationStatus {
 	}
 }
 
-// calculateRecoveryProgress calculates recovery progress
+// calculateRecoveryProgress calculates recovery progress.
 func (gdm *GracefulDegradationManager) calculateRecoveryProgress() float64 {
-	if gdm.currentLevel == DegradationNone {
+	if gdm.currentLevel == degradationNone {
 		return 1.0
 	}
 
@@ -662,13 +659,13 @@ func (gdm *GracefulDegradationManager) calculateRecoveryProgress() float64 {
 	return progress
 }
 
-// ManualDegrade manually triggers degradation
+// ManualDegrade manually triggers degradation.
 func (gdm *GracefulDegradationManager) ManualDegrade(level DegradationLevel, mode DegradationMode, duration time.Duration) error {
 	gdm.mu.Lock()
 	defer gdm.mu.Unlock()
 
 	if !gdm.enabled {
-		return ErrDegradationDisabled
+		return errDegradationDisabled
 	}
 
 	previousLevel := gdm.currentLevel
@@ -676,9 +673,9 @@ func (gdm *GracefulDegradationManager) ManualDegrade(level DegradationLevel, mod
 
 	gdm.currentLevel = level
 	gdm.currentMode = mode
-	gdm.currentTrigger = TriggerManual
+	gdm.currentTrigger = triggerManual
 
-	if previousLevel == DegradationNone {
+	if previousLevel == degradationNone {
 		gdm.degradationStart = time.Now()
 		gdm.degradationCount++
 
@@ -708,16 +705,16 @@ func (gdm *GracefulDegradationManager) ManualDegrade(level DegradationLevel, mod
 	return nil
 }
 
-// ManualRecover manually triggers recovery
+// ManualRecover manually triggers recovery.
 func (gdm *GracefulDegradationManager) ManualRecover() error {
 	gdm.mu.Lock()
 	defer gdm.mu.Unlock()
 
 	if !gdm.enabled {
-		return ErrDegradationDisabled
+		return errDegradationDisabled
 	}
 
-	if gdm.currentLevel == DegradationNone {
+	if gdm.currentLevel == degradationNone {
 		return errors.New("system is not in degraded mode")
 	}
 
@@ -725,7 +722,7 @@ func (gdm *GracefulDegradationManager) ManualRecover() error {
 	return nil
 }
 
-// IsFeatureEnabled checks if a feature is enabled
+// IsFeatureEnabled checks if a feature is enabled.
 func (gdm *GracefulDegradationManager) IsFeatureEnabled(feature string) bool {
 	gdm.mu.RLock()
 	defer gdm.mu.RUnlock()
@@ -733,7 +730,7 @@ func (gdm *GracefulDegradationManager) IsFeatureEnabled(feature string) bool {
 	return !gdm.disabledFeatures[feature]
 }
 
-// GetCurrentLimits returns current performance limits
+// GetCurrentLimits returns current performance limits.
 func (gdm *GracefulDegradationManager) GetCurrentLimits() *PerformanceLimits {
 	gdm.mu.RLock()
 	defer gdm.mu.RUnlock()
@@ -747,7 +744,7 @@ func (gdm *GracefulDegradationManager) GetCurrentLimits() *PerformanceLimits {
 	return &limits
 }
 
-// GetStatus returns the current degradation status
+// GetStatus returns the current degradation status.
 func (gdm *GracefulDegradationManager) GetStatus() DegradationStatus {
 	gdm.mu.RLock()
 	defer gdm.mu.RUnlock()
@@ -755,7 +752,7 @@ func (gdm *GracefulDegradationManager) GetStatus() DegradationStatus {
 	return gdm.getCurrentStatus()
 }
 
-// DegradationMetrics contains metrics about degradation
+// DegradationMetrics contains metrics about degradation.
 type DegradationMetrics struct {
 	DegradationCount     uint64
 	RecoveryCount        uint64
@@ -769,7 +766,7 @@ type DegradationMetrics struct {
 	LastDegradationTime  time.Time
 }
 
-// GetMetrics returns degradation metrics
+// GetMetrics returns degradation metrics.
 func (gdm *GracefulDegradationManager) GetMetrics() DegradationMetrics {
 	gdm.mu.RLock()
 	defer gdm.mu.RUnlock()
@@ -789,12 +786,12 @@ func (gdm *GracefulDegradationManager) GetMetrics() DegradationMetrics {
 		CurrentLevel:         gdm.currentLevel,
 		CurrentMode:          gdm.currentMode,
 		RuleActivationCount:  ruleCount,
-		IsActive:             gdm.currentLevel != DegradationNone,
+		IsActive:             gdm.currentLevel != degradationNone,
 		LastDegradationTime:  gdm.degradationStart,
 	}
 }
 
-// Enable enables graceful degradation
+// Enable enables graceful degradation.
 func (gdm *GracefulDegradationManager) Enable() {
 	gdm.mu.Lock()
 	defer gdm.mu.Unlock()
@@ -802,7 +799,7 @@ func (gdm *GracefulDegradationManager) Enable() {
 	gdm.enabled = true
 }
 
-// Disable disables graceful degradation
+// Disable disables graceful degradation.
 func (gdm *GracefulDegradationManager) Disable() {
 	gdm.mu.Lock()
 	defer gdm.mu.Unlock()
@@ -810,12 +807,12 @@ func (gdm *GracefulDegradationManager) Disable() {
 	gdm.enabled = false
 
 	// If currently degraded, recover
-	if gdm.currentLevel != DegradationNone {
+	if gdm.currentLevel != degradationNone {
 		gdm.recover()
 	}
 }
 
-// Shutdown shuts down the degradation manager
+// Shutdown shuts down the degradation manager.
 func (gdm *GracefulDegradationManager) Shutdown(ctx context.Context) error {
 	close(gdm.stopCh)
 
@@ -830,21 +827,21 @@ func (gdm *GracefulDegradationManager) Shutdown(ctx context.Context) error {
 	case <-done:
 		return nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("graceful degradation shutdown cancelled: %w", ctx.Err())
 	}
 }
 
-// MetricsCollector collects system metrics
+// MetricsCollector collects system metrics.
 type MetricsCollector struct {
 	mu sync.RWMutex
 }
 
-// NewMetricsCollector creates a new metrics collector
+// NewMetricsCollector creates a new metrics collector.
 func NewMetricsCollector() *MetricsCollector {
 	return &MetricsCollector{}
 }
 
-// GetCurrentMetrics returns current system metrics
+// GetCurrentMetrics returns current system metrics.
 func (mc *MetricsCollector) GetCurrentMetrics() *SystemMetrics {
 	mc.mu.RLock()
 	defer mc.mu.RUnlock()

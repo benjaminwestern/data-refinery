@@ -1,3 +1,4 @@
+// Package performance optimises TUI rendering and render-time telemetry.
 package performance
 
 import (
@@ -12,21 +13,21 @@ import (
 	"github.com/benjaminwestern/data-refinery/internal/tui/theme"
 )
 
-// RenderCache manages cached rendered content for performance
+// RenderCache manages cached rendered content for performance.
 type RenderCache struct {
 	cache map[string]CachedItem
 	mutex sync.RWMutex
 	ttl   time.Duration
 }
 
-// CachedItem represents a cached rendered item
+// CachedItem represents a cached rendered item.
 type CachedItem struct {
 	Content   string
 	Timestamp time.Time
 	Hash      string
 }
 
-// NewRenderCache creates a new render cache
+// NewRenderCache creates a new render cache.
 func NewRenderCache(ttl time.Duration) *RenderCache {
 	return &RenderCache{
 		cache: make(map[string]CachedItem),
@@ -34,7 +35,7 @@ func NewRenderCache(ttl time.Duration) *RenderCache {
 	}
 }
 
-// Get retrieves a cached item if it exists and is still valid
+// Get retrieves a cached item if it exists and is still valid.
 func (rc *RenderCache) Get(key string) (string, bool) {
 	rc.mutex.RLock()
 	defer rc.mutex.RUnlock()
@@ -52,7 +53,7 @@ func (rc *RenderCache) Get(key string) (string, bool) {
 	return item.Content, true
 }
 
-// Set stores a rendered item in the cache
+// Set stores a rendered item in the cache.
 func (rc *RenderCache) Set(key, content, hash string) {
 	rc.mutex.Lock()
 	defer rc.mutex.Unlock()
@@ -64,7 +65,7 @@ func (rc *RenderCache) Set(key, content, hash string) {
 	}
 }
 
-// Clear removes all cached items
+// Clear removes all cached items.
 func (rc *RenderCache) Clear() {
 	rc.mutex.Lock()
 	defer rc.mutex.Unlock()
@@ -72,7 +73,7 @@ func (rc *RenderCache) Clear() {
 	rc.cache = make(map[string]CachedItem)
 }
 
-// CleanExpired removes expired items from the cache
+// CleanExpired removes expired items from the cache.
 func (rc *RenderCache) CleanExpired() {
 	rc.mutex.Lock()
 	defer rc.mutex.Unlock()
@@ -85,7 +86,7 @@ func (rc *RenderCache) CleanExpired() {
 	}
 }
 
-// VirtualScrolling manages efficient rendering of large lists
+// VirtualScrolling manages efficient rendering of large lists.
 type VirtualScrolling struct {
 	items        []VirtualItem
 	visibleStart int
@@ -96,7 +97,7 @@ type VirtualScrolling struct {
 	scrollOffset int
 }
 
-// VirtualItem represents an item in the virtual scroll
+// VirtualItem represents an item in the virtual scroll.
 type VirtualItem struct {
 	Content    string
 	Height     int
@@ -105,7 +106,7 @@ type VirtualItem struct {
 	LastRender time.Time
 }
 
-// NewVirtualScrolling creates a new virtual scrolling manager
+// NewVirtualScrolling creates a new virtual scrolling manager.
 func NewVirtualScrolling(viewportSize, itemHeight int) *VirtualScrolling {
 	return &VirtualScrolling{
 		items:        []VirtualItem{},
@@ -116,7 +117,7 @@ func NewVirtualScrolling(viewportSize, itemHeight int) *VirtualScrolling {
 	}
 }
 
-// SetItems sets the items for virtual scrolling
+// SetItems sets the items for virtual scrolling.
 func (vs *VirtualScrolling) SetItems(items []string) {
 	vs.items = make([]VirtualItem, len(items))
 	for i, item := range items {
@@ -132,7 +133,7 @@ func (vs *VirtualScrolling) SetItems(items []string) {
 	vs.updateVisibleRange()
 }
 
-// ScrollTo scrolls to a specific item index
+// ScrollTo scrolls to a specific item index.
 func (vs *VirtualScrolling) ScrollTo(index int) {
 	if index < 0 || index >= len(vs.items) {
 		return
@@ -142,7 +143,7 @@ func (vs *VirtualScrolling) ScrollTo(index int) {
 	vs.updateVisibleRange()
 }
 
-// ScrollBy scrolls by a specific amount
+// ScrollBy scrolls by a specific amount.
 func (vs *VirtualScrolling) ScrollBy(delta int) {
 	vs.scrollOffset += delta
 
@@ -157,7 +158,7 @@ func (vs *VirtualScrolling) ScrollBy(delta int) {
 	vs.updateVisibleRange()
 }
 
-// updateVisibleRange calculates which items are visible
+// updateVisibleRange calculates which items are visible.
 func (vs *VirtualScrolling) updateVisibleRange() {
 	vs.visibleStart = vs.scrollOffset / vs.itemHeight
 	vs.visibleEnd = vs.visibleStart + (vs.viewportSize / vs.itemHeight) + 1
@@ -171,7 +172,7 @@ func (vs *VirtualScrolling) updateVisibleRange() {
 	}
 }
 
-// GetVisibleItems returns the currently visible items
+// GetVisibleItems returns the currently visible items.
 func (vs *VirtualScrolling) GetVisibleItems() []VirtualItem {
 	if vs.visibleStart >= len(vs.items) {
 		return []VirtualItem{}
@@ -180,20 +181,20 @@ func (vs *VirtualScrolling) GetVisibleItems() []VirtualItem {
 	return vs.items[vs.visibleStart:vs.visibleEnd]
 }
 
-// GetVisibleRange returns the start and end indices of visible items
+// GetVisibleRange returns the start and end indices of visible items.
 func (vs *VirtualScrolling) GetVisibleRange() (int, int) {
 	return vs.visibleStart, vs.visibleEnd
 }
 
-// SetSelected sets the selected state of an item
+// SetSelected sets the selected state of an item.
 func (vs *VirtualScrolling) SetSelected(index int, selected bool) {
 	if index >= 0 && index < len(vs.items) {
 		vs.items[index].Selected = selected
 	}
 }
 
-// PerformanceOptimizer manages overall TUI rendering performance
-type PerformanceOptimizer struct {
+// Optimizer manages overall TUI rendering performance.
+type Optimizer struct {
 	renderCache      *RenderCache
 	virtualScrolling *VirtualScrolling
 	frameRateLimit   time.Duration
@@ -203,7 +204,7 @@ type PerformanceOptimizer struct {
 	layoutCache      *LayoutCache
 }
 
-// RenderStats tracks rendering performance metrics
+// RenderStats tracks rendering performance metrics.
 type RenderStats struct {
 	TotalRenders      int64
 	CacheHits         int64
@@ -213,9 +214,9 @@ type RenderStats struct {
 	FrameRate         float64
 }
 
-// NewPerformanceOptimizer creates a new performance optimizer
-func NewPerformanceOptimizer(frameRateLimit time.Duration) *PerformanceOptimizer {
-	return &PerformanceOptimizer{
+// NewOptimizer creates a new performance optimizer.
+func NewOptimizer(frameRateLimit time.Duration) *Optimizer {
+	return &Optimizer{
 		renderCache:      NewRenderCache(5 * time.Second),
 		virtualScrolling: NewVirtualScrolling(50, 1),
 		frameRateLimit:   frameRateLimit,
@@ -226,19 +227,19 @@ func NewPerformanceOptimizer(frameRateLimit time.Duration) *PerformanceOptimizer
 	}
 }
 
-// ShouldRender checks if enough time has passed to render a new frame
-func (po *PerformanceOptimizer) ShouldRender() bool {
+// ShouldRender checks if enough time has passed to render a new frame.
+func (po *Optimizer) ShouldRender() bool {
 	return time.Since(po.lastRender) >= po.frameRateLimit
 }
 
-// BeginRender marks the start of a render cycle
-func (po *PerformanceOptimizer) BeginRender() time.Time {
+// BeginRender marks the start of a render cycle.
+func (po *Optimizer) BeginRender() time.Time {
 	po.lastRender = time.Now()
 	return po.lastRender
 }
 
-// EndRender marks the end of a render cycle and updates stats
-func (po *PerformanceOptimizer) EndRender(startTime time.Time) {
+// EndRender marks the end of a render cycle and updates stats.
+func (po *Optimizer) EndRender(startTime time.Time) {
 	renderTime := time.Since(startTime)
 	po.renderStats.TotalRenders++
 	po.renderStats.LastRenderTime = renderTime
@@ -256,13 +257,13 @@ func (po *PerformanceOptimizer) EndRender(startTime time.Time) {
 	}
 }
 
-// GetRenderStats returns current rendering statistics
-func (po *PerformanceOptimizer) GetRenderStats() RenderStats {
+// GetRenderStats returns current rendering statistics.
+func (po *Optimizer) GetRenderStats() RenderStats {
 	return po.renderStats
 }
 
-// OptimizeContent optimizes content rendering using various techniques
-func (po *PerformanceOptimizer) OptimizeContent(content string, context RenderContext) string {
+// OptimizeContent optimizes content rendering using various techniques.
+func (po *Optimizer) OptimizeContent(content string, context RenderContext) string {
 	startTime := time.Now()
 	defer po.EndRender(startTime)
 
@@ -284,7 +285,7 @@ func (po *PerformanceOptimizer) OptimizeContent(content string, context RenderCo
 	return optimized
 }
 
-// RenderContext provides context for rendering optimizations
+// RenderContext provides context for rendering optimizations.
 type RenderContext struct {
 	Width       int
 	Height      int
@@ -296,18 +297,22 @@ type RenderContext struct {
 	Priority    RenderPriority
 }
 
-// RenderPriority defines rendering priority levels
+// RenderPriority defines rendering priority levels.
 type RenderPriority int
 
 const (
+	// PriorityLow is suited to background or deferrable renders.
 	PriorityLow RenderPriority = iota
+	// PriorityNormal is the default priority for standard renders.
 	PriorityNormal
+	// PriorityHigh is suited to user-facing updates that should render promptly.
 	PriorityHigh
+	// PriorityCritical is reserved for renders that should bypass most optimisation.
 	PriorityCritical
 )
 
-// applyOptimizations applies various rendering optimizations
-func (po *PerformanceOptimizer) applyOptimizations(content string, context RenderContext) string {
+// applyOptimizations applies various rendering optimizations.
+func (po *Optimizer) applyOptimizations(content string, context RenderContext) string {
 	// Skip expensive operations for low priority content
 	if context.Priority == PriorityLow && len(content) > 10000 {
 		return po.simplifyContent(content, context)
@@ -333,8 +338,8 @@ func (po *PerformanceOptimizer) applyOptimizations(content string, context Rende
 	return content
 }
 
-// simplifyContent creates a simplified version of content for performance
-func (po *PerformanceOptimizer) simplifyContent(content string, context RenderContext) string {
+// simplifyContent creates a simplified version of content for performance.
+func (po *Optimizer) simplifyContent(content string, context RenderContext) string {
 	lines := strings.Split(content, "\n")
 
 	// Limit number of lines for very large content
@@ -348,8 +353,8 @@ func (po *PerformanceOptimizer) simplifyContent(content string, context RenderCo
 	return content
 }
 
-// virtualRenderContent renders content using virtual scrolling
-func (po *PerformanceOptimizer) virtualRenderContent(content string, context RenderContext) string {
+// virtualRenderContent renders content using virtual scrolling.
+func (po *Optimizer) virtualRenderContent(content string, context RenderContext) string {
 	lines := strings.Split(content, "\n")
 
 	// Calculate visible range
@@ -372,8 +377,8 @@ func (po *PerformanceOptimizer) virtualRenderContent(content string, context Ren
 	return ""
 }
 
-// generateCacheKey generates a cache key for content
-func (po *PerformanceOptimizer) generateCacheKey(content string, context RenderContext) string {
+// generateCacheKey generates a cache key for content.
+func (po *Optimizer) generateCacheKey(content string, context RenderContext) string {
 	return fmt.Sprintf("%s_%d_%d_%d_%d",
 		po.generateContentHash(content),
 		context.Width,
@@ -382,8 +387,8 @@ func (po *PerformanceOptimizer) generateCacheKey(content string, context RenderC
 		int(context.Priority))
 }
 
-// generateContentHash generates a hash of the content
-func (po *PerformanceOptimizer) generateContentHash(content string) string {
+// generateContentHash generates a hash of the content.
+func (po *Optimizer) generateContentHash(content string) string {
 	// Simple hash based on content length and first/last characters
 	if len(content) == 0 {
 		return "empty"
@@ -393,14 +398,14 @@ func (po *PerformanceOptimizer) generateContentHash(content string) string {
 	return hash
 }
 
-// DiffRenderer handles efficient partial updates
+// DiffRenderer handles efficient partial updates.
 type DiffRenderer struct {
 	previous    string
 	lastRender  time.Time
 	diffHistory []string
 }
 
-// NewDiffRenderer creates a new diff renderer
+// NewDiffRenderer creates a new diff renderer.
 func NewDiffRenderer() *DiffRenderer {
 	return &DiffRenderer{
 		previous:    "",
@@ -409,13 +414,13 @@ func NewDiffRenderer() *DiffRenderer {
 	}
 }
 
-// HasPrevious returns true if there's previous content to diff against
+// HasPrevious returns true if there's previous content to diff against.
 func (dr *DiffRenderer) HasPrevious() bool {
 	return dr.previous != ""
 }
 
-// RenderDiff renders only the differences from previous content
-func (dr *DiffRenderer) RenderDiff(content string, context RenderContext) string {
+// RenderDiff renders only the differences from previous content.
+func (dr *DiffRenderer) RenderDiff(content string, _ RenderContext) string {
 	if dr.previous == content {
 		// No changes, return cached result
 		return content
@@ -447,7 +452,7 @@ func (dr *DiffRenderer) RenderDiff(content string, context RenderContext) string
 	return content
 }
 
-// findCommonPrefix finds the number of common lines at the start
+// findCommonPrefix finds the number of common lines at the start.
 func findCommonPrefix(a, b []string) int {
 	common := 0
 	minLen := len(a)
@@ -466,7 +471,7 @@ func findCommonPrefix(a, b []string) int {
 	return common
 }
 
-// findCommonSuffix finds the number of common lines at the end
+// findCommonSuffix finds the number of common lines at the end.
 func findCommonSuffix(a, b []string) int {
 	common := 0
 	aLen := len(a)
@@ -487,20 +492,20 @@ func findCommonSuffix(a, b []string) int {
 	return common
 }
 
-// LayoutCache caches layout calculations
+// LayoutCache caches layout calculations.
 type LayoutCache struct {
 	cache map[string]*layout.ResponsiveLayout
 	mutex sync.RWMutex
 }
 
-// NewLayoutCache creates a new layout cache
+// NewLayoutCache creates a new layout cache.
 func NewLayoutCache() *LayoutCache {
 	return &LayoutCache{
 		cache: make(map[string]*layout.ResponsiveLayout),
 	}
 }
 
-// Get retrieves a cached layout
+// Get retrieves a cached layout.
 func (lc *LayoutCache) Get(width, height int) *layout.ResponsiveLayout {
 	lc.mutex.RLock()
 	defer lc.mutex.RUnlock()
@@ -509,7 +514,7 @@ func (lc *LayoutCache) Get(width, height int) *layout.ResponsiveLayout {
 	return lc.cache[key]
 }
 
-// Set caches a layout
+// Set caches a layout.
 func (lc *LayoutCache) Set(width, height int, layout *layout.ResponsiveLayout) {
 	lc.mutex.Lock()
 	defer lc.mutex.Unlock()
@@ -518,40 +523,40 @@ func (lc *LayoutCache) Set(width, height int, layout *layout.ResponsiveLayout) {
 	lc.cache[key] = layout
 }
 
-// applyLayoutToContent applies cached layout to content
-func (po *PerformanceOptimizer) applyLayoutToContent(content string, layout *layout.ResponsiveLayout) string {
+// applyLayoutToContent applies cached layout to content.
+func (po *Optimizer) applyLayoutToContent(content string, layout *layout.ResponsiveLayout) string {
 	// Use the cached layout to wrap content efficiently
 	return layout.WrapContent(content)
 }
 
-// BatchRenderer handles efficient batch rendering operations
+// BatchRenderer handles efficient batch rendering operations.
 type BatchRenderer struct {
 	batches []RenderBatch
 	mutex   sync.Mutex
 }
 
-// RenderBatch represents a batch of rendering operations
+// RenderBatch represents a batch of rendering operations.
 type RenderBatch struct {
 	Items    []BatchItem
 	Priority RenderPriority
 	Callback func([]string)
 }
 
-// BatchItem represents an item in a render batch
+// BatchItem represents an item in a render batch.
 type BatchItem struct {
 	Content string
 	Style   lipgloss.Style
 	Context RenderContext
 }
 
-// NewBatchRenderer creates a new batch renderer
+// NewBatchRenderer creates a new batch renderer.
 func NewBatchRenderer() *BatchRenderer {
 	return &BatchRenderer{
 		batches: []RenderBatch{},
 	}
 }
 
-// AddBatch adds a rendering batch
+// AddBatch adds a rendering batch.
 func (br *BatchRenderer) AddBatch(batch RenderBatch) {
 	br.mutex.Lock()
 	defer br.mutex.Unlock()
@@ -559,7 +564,7 @@ func (br *BatchRenderer) AddBatch(batch RenderBatch) {
 	br.batches = append(br.batches, batch)
 }
 
-// ProcessBatches processes all pending batches
+// ProcessBatches processes all pending batches.
 func (br *BatchRenderer) ProcessBatches() {
 	br.mutex.Lock()
 	defer br.mutex.Unlock()
@@ -579,8 +584,8 @@ func (br *BatchRenderer) ProcessBatches() {
 	br.batches = []RenderBatch{}
 }
 
-// PerformanceMonitor monitors TUI performance metrics
-type PerformanceMonitor struct {
+// Monitor monitors TUI performance metrics.
+type Monitor struct {
 	startTime   time.Time
 	renderTimes []time.Duration
 	memoryUsage []int64
@@ -589,9 +594,9 @@ type PerformanceMonitor struct {
 	maxSamples  int
 }
 
-// NewPerformanceMonitor creates a new performance monitor
-func NewPerformanceMonitor(maxSamples int) *PerformanceMonitor {
-	return &PerformanceMonitor{
+// NewMonitor creates a new performance monitor.
+func NewMonitor(maxSamples int) *Monitor {
+	return &Monitor{
 		startTime:   time.Now(),
 		renderTimes: []time.Duration{},
 		memoryUsage: []int64{},
@@ -600,8 +605,8 @@ func NewPerformanceMonitor(maxSamples int) *PerformanceMonitor {
 	}
 }
 
-// RecordRenderTime records a render time sample
-func (pm *PerformanceMonitor) RecordRenderTime(duration time.Duration) {
+// RecordRenderTime records a render time sample.
+func (pm *Monitor) RecordRenderTime(duration time.Duration) {
 	pm.mutex.Lock()
 	defer pm.mutex.Unlock()
 
@@ -613,8 +618,8 @@ func (pm *PerformanceMonitor) RecordRenderTime(duration time.Duration) {
 	}
 }
 
-// RecordFrameRate records a frame rate sample
-func (pm *PerformanceMonitor) RecordFrameRate(fps float64) {
+// RecordFrameRate records a frame rate sample.
+func (pm *Monitor) RecordFrameRate(fps float64) {
 	pm.mutex.Lock()
 	defer pm.mutex.Unlock()
 
@@ -626,8 +631,8 @@ func (pm *PerformanceMonitor) RecordFrameRate(fps float64) {
 	}
 }
 
-// GetAverageRenderTime returns the average render time
-func (pm *PerformanceMonitor) GetAverageRenderTime() time.Duration {
+// GetAverageRenderTime returns the average render time.
+func (pm *Monitor) GetAverageRenderTime() time.Duration {
 	pm.mutex.RLock()
 	defer pm.mutex.RUnlock()
 
@@ -643,8 +648,8 @@ func (pm *PerformanceMonitor) GetAverageRenderTime() time.Duration {
 	return total / time.Duration(len(pm.renderTimes))
 }
 
-// GetAverageFrameRate returns the average frame rate
-func (pm *PerformanceMonitor) GetAverageFrameRate() float64 {
+// GetAverageFrameRate returns the average frame rate.
+func (pm *Monitor) GetAverageFrameRate() float64 {
 	pm.mutex.RLock()
 	defer pm.mutex.RUnlock()
 
@@ -660,8 +665,8 @@ func (pm *PerformanceMonitor) GetAverageFrameRate() float64 {
 	return total / float64(len(pm.frameRates))
 }
 
-// GetPerformanceReport returns a formatted performance report
-func (pm *PerformanceMonitor) GetPerformanceReport() string {
+// GetPerformanceReport returns a formatted performance report.
+func (pm *Monitor) GetPerformanceReport() string {
 	avgRender := pm.GetAverageRenderTime()
 	avgFPS := pm.GetAverageFrameRate()
 	uptime := time.Since(pm.startTime)

@@ -1,0 +1,60 @@
+        <svg width="1280" height="380" viewBox="0 0 1280 380" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <pattern id="ledger" width="48" height="48" patternUnits="userSpaceOnUse">
+              <path d="M 48 0 L 0 0 0 48" fill="none" stroke="#D6C7B3" stroke-width="1" />
+            </pattern>
+            <clipPath id="frame-clip">
+              <rect width="1280" height="380" rx="28" />
+            </clipPath>
+            <style><![CDATA[
+              .badge { font-family: "JetBrainsMono Nerd Font", "Hack Nerd Font", "CaskaydiaMono Nerd Font", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 13px; font-weight: 700; fill: #223039; }
+              .eyebrow { font-family: "JetBrainsMono Nerd Font", "Hack Nerd Font", "CaskaydiaMono Nerd Font", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 15px; font-weight: 700; letter-spacing: 0.14em; fill: #C8643B; }
+              .title { font-family: "JetBrainsMono Nerd Font", "Hack Nerd Font", "CaskaydiaMono Nerd Font", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 58px; font-weight: 700; fill: #FFF9F1; }
+              .subtitle { font-family: "JetBrainsMono Nerd Font", "Hack Nerd Font", "CaskaydiaMono Nerd Font", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 19px; font-weight: 700; fill: #D9CEC0; }
+              .meta { font-family: "JetBrainsMono Nerd Font", "Hack Nerd Font", "CaskaydiaMono Nerd Font", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 14px; fill: #D9CEC0; }
+              .footer { font-family: "JetBrainsMono Nerd Font", "Hack Nerd Font", "CaskaydiaMono Nerd Font", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 14px; font-weight: 700; fill: #223039; }
+              .panel-label { font-family: "JetBrainsMono Nerd Font", "Hack Nerd Font", "CaskaydiaMono Nerd Font", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; fill: #C8643B; }
+              .panel-title { font-family: "JetBrainsMono Nerd Font", "Hack Nerd Font", "CaskaydiaMono Nerd Font", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 16px; font-weight: 700; fill: #223039; }
+              .panel-copy { font-family: "JetBrainsMono Nerd Font", "Hack Nerd Font", "CaskaydiaMono Nerd Font", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 15px; fill: #223039; }
+              .panel-copy-muted { font-family: "JetBrainsMono Nerd Font", "Hack Nerd Font", "CaskaydiaMono Nerd Font", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 14px; fill: #293A44; }
+            ]]></style>
+          </defs>
+
+          <g clip-path="url(#frame-clip)">
+            <rect width="1280" height="380" rx="28" fill="#F4EFE6" />
+            <rect width="1280" height="380" rx="28" fill="url(#ledger)" opacity="0.72" />
+            <rect x="0" y="318" width="1280" height="62" fill="#FBF7F0" />
+
+            <rect x="50" y="42" width="762" height="266" rx="22" fill="#BDAE99" />
+<rect x="42" y="34" width="762" height="266" rx="22" fill="#18232A" stroke="#30414B" stroke-width="2" />
+            <rect x="70" y="58" width="170" height="32" rx="9" fill="#F4EFE6" />
+            <text x="86" y="79" class="badge">&gt; data-refinery</text>
+            <rect x="70" y="112" width="28" height="3" rx="1.5" fill="#C8643B" />
+            <text x="114" y="118" class="eyebrow">INGEST  ANALYSE  REWRITE</text>
+            <text x="70" y="176" class="title">Data Refinery</text>
+            <text x="70" y="216" class="subtitle">normalise raw files into stable datasets</text>
+            <text x="70" y="244" class="subtitle">inspect JSON workflows before you mutate them</text>
+            <text x="70" y="272" class="subtitle">apply preview-first cleanup with local or GCS paths</text>
+
+            <rect x="850" y="54" width="364" height="122" rx="18" fill="#BDAE99" />
+<rect x="844" y="48" width="364" height="122" rx="18" fill="#FBF7F0" stroke="#D6C7B3" stroke-width="2" />
+            <text x="868" y="72" class="panel-label">[ surfaces ]</text>
+            <text x="868" y="98" class="panel-title">supported workflows</text>
+            <text x="868" y="124" class="panel-copy">ingest   analysis   rewrite</text>
+            <text x="868" y="148" class="panel-copy-muted">local paths and gs:// URIs</text>
+
+            <rect x="850" y="194" width="364" height="118" rx="18" fill="#BDAE99" />
+<rect x="844" y="188" width="364" height="118" rx="18" fill="#FBF7F0" stroke="#D6C7B3" stroke-width="2" />
+            <text x="868" y="212" class="panel-label">[ outputs ]</text>
+            <text x="868" y="238" class="panel-title">normalised and reviewable</text>
+            <text x="868" y="264" class="panel-copy">csv  json  ndjson  jsonl</text>
+            <text x="868" y="288" class="panel-copy-muted">plus reports, summaries, backups</text>
+
+            <rect x="816" y="60" width="10" height="226" rx="5" fill="#C29A3A" />
+            <rect x="1224" y="62" width="16" height="16" rx="3" fill="#3B6F73" />
+            <rect x="1224" y="88" width="16" height="16" rx="3" fill="#C8643B" />
+            <rect x="1224" y="114" width="16" height="16" rx="3" fill="#5D7056" />
+
+            <text x="70" y="354" class="footer">workflow-first CLI  •  config-driven jobs  •  preview before apply</text>
+          </g>
+        </svg>

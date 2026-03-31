@@ -1,4 +1,4 @@
-// internal/deletion/interactive_purge.go
+// Package deletion provides interactive duplicate purge workflows.
 package deletion
 
 import (
@@ -15,9 +15,10 @@ import (
 	"github.com/benjaminwestern/data-refinery/internal/backup"
 	"github.com/benjaminwestern/data-refinery/internal/errors"
 	"github.com/benjaminwestern/data-refinery/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/safety"
 )
 
-// InteractivePurgeEngine handles interactive purging operations with comprehensive error handling
+// InteractivePurgeEngine handles interactive purging operations with comprehensive error handling.
 type InteractivePurgeEngine struct {
 	ctx            context.Context
 	backupManager  *backup.PurgedRowManager
@@ -27,7 +28,7 @@ type InteractivePurgeEngine struct {
 	mutex          sync.RWMutex
 }
 
-// PurgeTransaction represents a single purge transaction with rollback capability
+// PurgeTransaction represents a single purge transaction with rollback capability.
 type PurgeTransaction struct {
 	ID               string                 `json:"id"`
 	SourcePath       string                 `json:"source_path"`
@@ -44,9 +45,10 @@ type PurgeTransaction struct {
 	StorageKey       string                 `json:"storage_key"`
 }
 
-// PurgeTransactionStatus represents the status of a purge transaction
+// PurgeTransactionStatus represents the status of a purge transaction.
 type PurgeTransactionStatus string
 
+// PurgeTransactionStatus values describe the lifecycle of an interactive purge.
 const (
 	TransactionPending    PurgeTransactionStatus = "pending"
 	TransactionRunning    PurgeTransactionStatus = "running"
@@ -55,7 +57,7 @@ const (
 	TransactionRolledBack PurgeTransactionStatus = "rolled_back"
 )
 
-// InteractivePurgeConfig contains configuration for interactive purging
+// InteractivePurgeConfig contains configuration for interactive purging.
 type InteractivePurgeConfig struct {
 	BackupDir         string `json:"backup_dir"`
 	TempDir           string `json:"temp_dir"`
@@ -65,7 +67,7 @@ type InteractivePurgeConfig struct {
 	ChunkSize         int    `json:"chunk_size"`
 }
 
-// InteractivePurgeResult contains the result of interactive purge operation
+// InteractivePurgeResult contains the result of interactive purge operation.
 type InteractivePurgeResult struct {
 	TransactionID  string              `json:"transaction_id"`
 	TotalFiles     int                 `json:"total_files"`
@@ -80,7 +82,7 @@ type InteractivePurgeResult struct {
 	Status         string              `json:"status"`
 }
 
-// NewInteractivePurgeEngine creates a new interactive purge engine
+// NewInteractivePurgeEngine creates a new interactive purge engine.
 func NewInteractivePurgeEngine(ctx context.Context, backupManager *backup.PurgedRowManager, errorHandler *errors.ErrorHandler, config *InteractivePurgeConfig) (*InteractivePurgeEngine, error) {
 	// Create temp directory
 	tempDir := config.TempDir
@@ -93,7 +95,7 @@ func NewInteractivePurgeEngine(ctx context.Context, backupManager *backup.Purged
 	}
 
 	// Ensure temp directory exists
-	if err := os.MkdirAll(tempDir, 0o755); err != nil {
+	if err := os.MkdirAll(tempDir, 0o700); err != nil {
 		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
 
@@ -106,7 +108,7 @@ func NewInteractivePurgeEngine(ctx context.Context, backupManager *backup.Purged
 	}, nil
 }
 
-// ProcessInteractivePurge processes interactive purging for multiple files
+// ProcessInteractivePurge processes interactive purging for multiple files.
 func (ipe *InteractivePurgeEngine) ProcessInteractivePurge(
 	recordsToDelete map[string]map[int]bool,
 	config *InteractivePurgeConfig,
@@ -128,7 +130,7 @@ func (ipe *InteractivePurgeEngine) ProcessInteractivePurge(
 	}
 
 	// Sort files for consistent processing order
-	var filePaths []string
+	filePaths := make([]string, 0, len(recordsToDelete))
 	for filePath := range recordsToDelete {
 		filePaths = append(filePaths, filePath)
 	}
@@ -138,7 +140,7 @@ func (ipe *InteractivePurgeEngine) ProcessInteractivePurge(
 	for _, filePath := range filePaths {
 		if err := ipe.ctx.Err(); err != nil {
 			result.Status = "cancelled"
-			return result, err
+			return result, fmt.Errorf("interactive purge cancelled: %w", err)
 		}
 
 		lineNumbers := recordsToDelete[filePath]
@@ -181,7 +183,7 @@ func (ipe *InteractivePurgeEngine) ProcessInteractivePurge(
 	return result, nil
 }
 
-// processFile processes a single file for interactive purging
+// processFile processes a single file for interactive purging.
 func (ipe *InteractivePurgeEngine) processFile(
 	filePath string,
 	lineNumbers map[int]bool,
@@ -249,7 +251,7 @@ func (ipe *InteractivePurgeEngine) processFile(
 	return transaction, nil
 }
 
-// processFileWithTransaction processes a file with full transaction safety
+// processFileWithTransaction processes a file with full transaction safety.
 func (ipe *InteractivePurgeEngine) processFileWithTransaction(
 	transaction *PurgeTransaction,
 	backupStorage *backup.PurgedRowStorage,
@@ -260,7 +262,7 @@ func (ipe *InteractivePurgeEngine) processFileWithTransaction(
 	if err != nil {
 		return fmt.Errorf("failed to open source file: %w", err)
 	}
-	defer sourceFile.Close()
+	defer safety.Close(sourceFile, transaction.SourcePath)
 
 	// Get file info
 	fileInfo, err := sourceFile.Stat()
@@ -274,12 +276,12 @@ func (ipe *InteractivePurgeEngine) processFileWithTransaction(
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
-	defer tempFile.Close()
+	defer safety.Close(tempFile, transaction.TempPath)
 
 	// Process file line by line
 	scanner := bufio.NewScanner(sourceFile)
 	writer := bufio.NewWriter(tempFile)
-	defer writer.Flush()
+	defer safety.Flush(writer, transaction.TempPath)
 
 	lineNumber := 0
 	for scanner.Scan() {
@@ -361,14 +363,14 @@ func (ipe *InteractivePurgeEngine) processFileWithTransaction(
 	return nil
 }
 
-// validateFileIntegrity validates the integrity of the processed file
+// validateFileIntegrity validates the integrity of the processed file.
 func (ipe *InteractivePurgeEngine) validateFileIntegrity(transaction *PurgeTransaction) error {
 	// Open the temp file and validate JSON structure
 	tempFile, err := os.Open(transaction.TempPath)
 	if err != nil {
 		return fmt.Errorf("failed to open temp file for validation: %w", err)
 	}
-	defer tempFile.Close()
+	defer safety.Close(tempFile, transaction.TempPath)
 
 	scanner := bufio.NewScanner(tempFile)
 	lineNumber := 0
@@ -391,7 +393,7 @@ func (ipe *InteractivePurgeEngine) validateFileIntegrity(transaction *PurgeTrans
 	return nil
 }
 
-// rollbackTransaction rolls back a failed transaction
+// rollbackTransaction rolls back a failed transaction.
 func (ipe *InteractivePurgeEngine) rollbackTransaction(transaction *PurgeTransaction) error {
 	// Remove temp file if it exists
 	if transaction.TempPath != "" {
@@ -406,7 +408,7 @@ func (ipe *InteractivePurgeEngine) rollbackTransaction(transaction *PurgeTransac
 	return nil
 }
 
-// GetTransactionStatus returns the status of a specific transaction
+// GetTransactionStatus returns the status of a specific transaction.
 func (ipe *InteractivePurgeEngine) GetTransactionStatus(transactionID string) (*PurgeTransaction, bool) {
 	ipe.mutex.RLock()
 	defer ipe.mutex.RUnlock()
@@ -415,7 +417,7 @@ func (ipe *InteractivePurgeEngine) GetTransactionStatus(transactionID string) (*
 	return transaction, exists
 }
 
-// GetAllTransactions returns all transactions
+// GetAllTransactions returns all transactions.
 func (ipe *InteractivePurgeEngine) GetAllTransactions() []*PurgeTransaction {
 	ipe.mutex.RLock()
 	defer ipe.mutex.RUnlock()
@@ -428,7 +430,7 @@ func (ipe *InteractivePurgeEngine) GetAllTransactions() []*PurgeTransaction {
 	return transactions
 }
 
-// SaveTransactionLog saves the transaction log to disk
+// SaveTransactionLog saves the transaction log to disk.
 func (ipe *InteractivePurgeEngine) SaveTransactionLog(path string) error {
 	ipe.mutex.RLock()
 	defer ipe.mutex.RUnlock()
@@ -437,7 +439,7 @@ func (ipe *InteractivePurgeEngine) SaveTransactionLog(path string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create transaction log file: %w", err)
 	}
-	defer file.Close()
+	defer safety.Close(file, path)
 
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "  ")
@@ -449,7 +451,7 @@ func (ipe *InteractivePurgeEngine) SaveTransactionLog(path string) error {
 	return nil
 }
 
-// LoadTransactionLog loads the transaction log from disk
+// LoadTransactionLog loads the transaction log from disk.
 func (ipe *InteractivePurgeEngine) LoadTransactionLog(path string) error {
 	file, err := os.Open(path)
 	if err != nil {
@@ -458,7 +460,7 @@ func (ipe *InteractivePurgeEngine) LoadTransactionLog(path string) error {
 		}
 		return fmt.Errorf("failed to open transaction log file: %w", err)
 	}
-	defer file.Close()
+	defer safety.Close(file, path)
 
 	decoder := json.NewDecoder(file)
 
@@ -472,7 +474,7 @@ func (ipe *InteractivePurgeEngine) LoadTransactionLog(path string) error {
 	return nil
 }
 
-// Cleanup removes temporary files and cleans up resources
+// Cleanup removes temporary files and cleans up resources.
 func (ipe *InteractivePurgeEngine) Cleanup() error {
 	// Remove temp directory
 	if err := os.RemoveAll(ipe.tempDir); err != nil {

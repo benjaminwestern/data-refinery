@@ -38,18 +38,18 @@ type Analyser struct {
 
 	// Core components
 	errorHandler   *errors.ErrorCollector
-	stateManager   *state.StateManager
+	stateManager   *state.Manager
 	errorRecovery  *processing.ErrorRecoverySystem
 	circuitBreaker *processing.CircuitBreaker
 
 	// Advanced features (always available)
-	searchEngine    *search.SearchEngine
-	deletionEngine  *deletion.DeletionEngine
-	schemaAnalyzer  *schema.SchemaAnalyzer
+	searchEngine    *search.Engine
+	deletionEngine  *deletion.Engine
+	schemaAnalyzer  *schema.Analyzer
 	selectiveHasher *hasher.SelectiveHasher
 
 	// Memory management
-	memoryManager *memory.MemoryManager
+	memoryManager *memory.Manager
 
 	// Processing components
 	rowProcessor    *processing.DefaultRowProcessor
@@ -217,7 +217,7 @@ func (a *Analyser) handleRecoverableError(ctx context.Context, err error, operat
 type StreamingProcessor struct {
 	batchSize       int
 	batchProcessor  func([]StreamingItem) error
-	memoryManager   *memory.MemoryManager
+	memoryManager   *memory.Manager
 	currentBatch    []StreamingItem
 	processedItems  int64
 	memoryThreshold int64
@@ -232,7 +232,7 @@ type StreamingItem struct {
 }
 
 // NewStreamingProcessor creates a new streaming processor.
-func NewStreamingProcessor(batchSize int, memoryManager *memory.MemoryManager) *StreamingProcessor {
+func NewStreamingProcessor(batchSize int, memoryManager *memory.Manager) *StreamingProcessor {
 	return &StreamingProcessor{
 		batchSize:       batchSize,
 		memoryManager:   memoryManager,
@@ -513,7 +513,7 @@ func (a *Analyser) generateReport(sources []source.InputSource, wasCancelled, is
 }
 
 // GetSearchResults returns the search results if the search engine is configured.
-func (a *Analyser) GetSearchResults() *search.SearchResults {
+func (a *Analyser) GetSearchResults() *search.Results {
 	if a.searchEngine == nil {
 		return nil
 	}
@@ -522,7 +522,7 @@ func (a *Analyser) GetSearchResults() *search.SearchResults {
 }
 
 // GetSchemaReport returns the schema report if the schema analyzer is configured.
-func (a *Analyser) GetSchemaReport() *schema.SchemaReport {
+func (a *Analyser) GetSchemaReport() *schema.Report {
 	if a.schemaAnalyzer == nil {
 		return nil
 	}
@@ -530,7 +530,7 @@ func (a *Analyser) GetSchemaReport() *schema.SchemaReport {
 }
 
 // GetDeletionStats returns the deletion statistics if the deletion engine is configured.
-func (a *Analyser) GetDeletionStats() *deletion.DeletionStats {
+func (a *Analyser) GetDeletionStats() *deletion.Stats {
 	if a.deletionEngine == nil {
 		return nil
 	}
@@ -565,7 +565,7 @@ func (a *Analyser) Close() error {
 }
 
 // GetStateManager returns the state manager for external use.
-func (a *Analyser) GetStateManager() *state.StateManager {
+func (a *Analyser) GetStateManager() *state.Manager {
 	return a.stateManager
 }
 
@@ -579,7 +579,7 @@ func (a *Analyser) initializeStateManagement(ctx context.Context) error {
 	sessionID := fmt.Sprintf("data_refinery_%d", time.Now().Unix())
 
 	// Create state manager with configuration
-	options := []state.StateManagerOption{
+	options := []state.ManagerOption{
 		state.WithAutoSaveInterval(a.config.StateManagement.AutoSaveInterval),
 		state.WithMaxStateHistory(a.config.StateManagement.MaxStateHistory),
 		state.WithCompressionLevel(a.config.StateManagement.CompressionLevel),

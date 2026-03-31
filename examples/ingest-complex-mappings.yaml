@@ -1,0 +1,20 @@
+files:
+  - match:
+      name: profiles.json
+      format: json
+    columns:
+      person.id: Id
+      person.profile.first_name: FirstName
+      person.profile.last_name: LastName
+      person.profile.email: Email
+      person.contact.mobile: Mobile
+      person.contact.postcode: PostCode
+      metadata.source: DataSource
+      metadata.created_at: SourceCreatedDate
+      metadata.updated_at: SourceModifiedDate
+    attributes:
+      person.preferences.channel: PreferredChannel
+      person.preferences.segment: CustomerSegment
+      person.loyalty.tier: LoyaltyTier
+      person.loyalty.points: LoyaltyPoints
+      metadata.import_batch: ImportBatch

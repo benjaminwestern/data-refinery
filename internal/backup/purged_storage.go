@@ -1,4 +1,4 @@
-// internal/backup/purged_storage.go
+// Package backup provides storage helpers for preserved purged-row artefacts.
 package backup
 
 import (
@@ -12,10 +12,11 @@ import (
 	"time"
 
 	"github.com/benjaminwestern/data-refinery/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/safety"
 	"github.com/benjaminwestern/data-refinery/internal/source"
 )
 
-// PurgedRowStorage manages storage of purged rows with original structure preservation
+// PurgedRowStorage manages storage of purged rows with original structure preservation.
 type PurgedRowStorage struct {
 	basePath          string
 	timestamp         string
@@ -26,9 +27,10 @@ type PurgedRowStorage struct {
 	operationMetadata map[string]*OperationMetadata
 }
 
-// FileFormat represents the detected file format
+// FileFormat represents the detected file format.
 type FileFormat string
 
+// FileFormat values describe the preserved file encoding for purged rows.
 const (
 	FormatJSON    FileFormat = "json"
 	FormatNDJSON  FileFormat = "ndjson"
@@ -36,7 +38,7 @@ const (
 	FormatUnknown FileFormat = "unknown"
 )
 
-// detectFormatFromPath detects format from file path extension
+// detectFormatFromPath detects format from file path extension.
 func detectFormatFromPath(path string) FileFormat {
 	lowerPath := strings.ToLower(path)
 
@@ -51,7 +53,7 @@ func detectFormatFromPath(path string) FileFormat {
 	return FormatUnknown
 }
 
-// OperationMetadata contains metadata about a purge operation
+// OperationMetadata contains metadata about a purge operation.
 type OperationMetadata struct {
 	OperationType string      `json:"operation_type"`
 	SourcePath    string      `json:"source_path"`
@@ -65,7 +67,7 @@ type OperationMetadata struct {
 	PurgeDetails  interface{} `json:"purge_details"`
 }
 
-// PurgedRowEntry represents a purged row with metadata
+// PurgedRowEntry represents a purged row with metadata.
 type PurgedRowEntry struct {
 	OriginalRow  json.RawMessage     `json:"original_row"`
 	Location     report.LocationInfo `json:"location"`
@@ -74,7 +76,7 @@ type PurgedRowEntry struct {
 	Timestamp    time.Time           `json:"timestamp"`
 }
 
-// NewPurgedRowStorage creates a new purged row storage instance
+// NewPurgedRowStorage creates a new purged row storage instance.
 func NewPurgedRowStorage(basePath string) *PurgedRowStorage {
 	return &PurgedRowStorage{
 		basePath:          basePath,
@@ -86,7 +88,7 @@ func NewPurgedRowStorage(basePath string) *PurgedRowStorage {
 	}
 }
 
-// InitializeStorage initializes storage for a specific source file
+// InitializeStorage initializes storage for a specific source file.
 func (prs *PurgedRowStorage) InitializeStorage(
 	sourcePath string,
 	operationType string,
@@ -115,7 +117,7 @@ func (prs *PurgedRowStorage) InitializeStorage(
 		return "", fmt.Errorf("failed to create storage file: %w", err)
 	}
 	if err := file.Chmod(0o600); err != nil {
-		file.Close()
+		safety.Close(file, storagePath)
 		return "", fmt.Errorf("failed to set storage file permissions: %w", err)
 	}
 
@@ -129,7 +131,7 @@ func (prs *PurgedRowStorage) InitializeStorage(
 		writer = jsonWriter
 	case FormatNDJSON, FormatJSONL:
 		writer = file
-	default:
+	case FormatUnknown:
 		writer = file
 	}
 
@@ -149,7 +151,7 @@ func (prs *PurgedRowStorage) InitializeStorage(
 	return storageKey, nil
 }
 
-// StorePurgedRow stores a purged row with metadata
+// StorePurgedRow stores a purged row with metadata.
 func (prs *PurgedRowStorage) StorePurgedRow(
 	storageKey string,
 	originalRow json.RawMessage,
@@ -182,7 +184,7 @@ func (prs *PurgedRowStorage) StorePurgedRow(
 	return prs.writeEntry(writer, entry)
 }
 
-// StorePurgedRows stores multiple purged rows
+// StorePurgedRows stores multiple purged rows.
 func (prs *PurgedRowStorage) StorePurgedRows(
 	storageKey string,
 	rows []json.RawMessage,
@@ -203,7 +205,7 @@ func (prs *PurgedRowStorage) StorePurgedRows(
 	return nil
 }
 
-// FinalizeStorage finalizes storage for a source file
+// FinalizeStorage finalizes storage for a source file.
 func (prs *PurgedRowStorage) FinalizeStorage(storageKey string, totalRows int64) error {
 	prs.mutex.Lock()
 	defer prs.mutex.Unlock()
@@ -240,13 +242,13 @@ func (prs *PurgedRowStorage) FinalizeStorage(storageKey string, totalRows int64)
 	return nil
 }
 
-// generateStorageKey generates a unique storage key
+// generateStorageKey generates a unique storage key.
 func (prs *PurgedRowStorage) generateStorageKey(sourcePath, operationType string) string {
 	baseName := prs.pathResolver.ExtractBaseName(sourcePath)
 	return fmt.Sprintf("%s_%s_%s", baseName, operationType, prs.timestamp)
 }
 
-// generateStoragePath generates storage path preserving structure
+// generateStoragePath generates storage path preserving structure.
 func (prs *PurgedRowStorage) generateStoragePath(sourcePath, operationType string) (string, error) {
 	// Create subdirectory for operation type
 	operationDir := filepath.Join(prs.basePath, "purged_data", operationType, prs.timestamp)
@@ -282,7 +284,7 @@ func (prs *PurgedRowStorage) generateStoragePath(sourcePath, operationType strin
 	return storagePath, nil
 }
 
-// writeEntry writes a purged row entry to storage
+// writeEntry writes a purged row entry to storage.
 func (prs *PurgedRowStorage) writeEntry(writer io.Writer, entry PurgedRowEntry) error {
 	entryData, err := json.Marshal(entry)
 	if err != nil {
@@ -306,7 +308,7 @@ func (prs *PurgedRowStorage) writeEntry(writer io.Writer, entry PurgedRowEntry) 
 	return nil
 }
 
-// writeMetadata writes operation metadata to a separate file
+// writeMetadata writes operation metadata to a separate file.
 func (prs *PurgedRowStorage) writeMetadata(storageKey string) error {
 	metadata, exists := prs.operationMetadata[storageKey]
 	if !exists {
@@ -318,7 +320,7 @@ func (prs *PurgedRowStorage) writeMetadata(storageKey string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create metadata file: %w", err)
 	}
-	defer metadataFile.Close()
+	defer safety.Close(metadataFile, metadataPath)
 	if err := metadataFile.Chmod(0o600); err != nil {
 		return fmt.Errorf("failed to set metadata file permissions: %w", err)
 	}
@@ -332,7 +334,7 @@ func (prs *PurgedRowStorage) writeMetadata(storageKey string) error {
 	return nil
 }
 
-// GetStorageInfo returns information about stored data
+// GetStorageInfo returns information about stored data.
 func (prs *PurgedRowStorage) GetStorageInfo() map[string]*OperationMetadata {
 	prs.mutex.Lock()
 	defer prs.mutex.Unlock()
@@ -357,7 +359,7 @@ func (prs *PurgedRowStorage) GetStorageInfo() map[string]*OperationMetadata {
 	return info
 }
 
-// RestorePurgedRows restores purged rows from storage
+// RestorePurgedRows restores purged rows from storage.
 func (prs *PurgedRowStorage) RestorePurgedRows(storageKey string) ([]PurgedRowEntry, error) {
 	metadata, exists := prs.operationMetadata[storageKey]
 	if !exists {
@@ -368,7 +370,7 @@ func (prs *PurgedRowStorage) RestorePurgedRows(storageKey string) ([]PurgedRowEn
 	if err != nil {
 		return nil, fmt.Errorf("failed to open storage file: %w", err)
 	}
-	defer file.Close()
+	defer safety.Close(file, metadata.TargetPath)
 
 	var entries []PurgedRowEntry
 
@@ -389,14 +391,14 @@ func (prs *PurgedRowStorage) RestorePurgedRows(storageKey string) ([]PurgedRowEn
 			}
 			entries = append(entries, entry)
 		}
-	default:
+	case FormatUnknown:
 		return nil, fmt.Errorf("unsupported format: %s", metadata.Format)
 	}
 
 	return entries, nil
 }
 
-// Close closes all open storage files
+// Close closes all open storage files.
 func (prs *PurgedRowStorage) Close() error {
 	prs.mutex.Lock()
 	defer prs.mutex.Unlock()
@@ -419,7 +421,7 @@ func (prs *PurgedRowStorage) Close() error {
 	return nil
 }
 
-// jsonArrayWriter handles JSON array format writing
+// jsonArrayWriter handles JSON array format writing.
 type jsonArrayWriter struct {
 	file    *os.File
 	isFirst bool
@@ -435,21 +437,21 @@ func (jaw *jsonArrayWriter) writeEntry(data []byte) (int, error) {
 	if jaw.isFirst {
 		n, err := jaw.file.Write([]byte("["))
 		if err != nil {
-			return n, err
+			return n, fmt.Errorf("write JSON array opening bracket: %w", err)
 		}
 		totalWritten += n
 		jaw.isFirst = false
 	} else {
 		n, err := jaw.file.Write([]byte(","))
 		if err != nil {
-			return totalWritten, err
+			return totalWritten, fmt.Errorf("write JSON array separator: %w", err)
 		}
 		totalWritten += n
 	}
 
 	n, err := jaw.file.Write(data)
 	if err != nil {
-		return totalWritten, err
+		return totalWritten, fmt.Errorf("write JSON array entry: %w", err)
 	}
 	totalWritten += n
 
@@ -458,25 +460,25 @@ func (jaw *jsonArrayWriter) writeEntry(data []byte) (int, error) {
 
 func (jaw *jsonArrayWriter) finalize() error {
 	if _, err := jaw.file.Write([]byte("]")); err != nil {
-		return err
+		return fmt.Errorf("write JSON array closing bracket: %w", err)
 	}
 	return nil
 }
 
-// PurgedRowManager manages multiple purged row storages
+// PurgedRowManager manages multiple purged row storages.
 type PurgedRowManager struct {
 	storages map[string]*PurgedRowStorage
 	mutex    sync.Mutex
 }
 
-// NewPurgedRowManager creates a new purged row manager
+// NewPurgedRowManager creates a new purged row manager.
 func NewPurgedRowManager() *PurgedRowManager {
 	return &PurgedRowManager{
 		storages: make(map[string]*PurgedRowStorage),
 	}
 }
 
-// GetStorage gets or creates a storage for a base path
+// GetStorage gets or creates a storage for a base path.
 func (prm *PurgedRowManager) GetStorage(basePath string) *PurgedRowStorage {
 	prm.mutex.Lock()
 	defer prm.mutex.Unlock()
@@ -490,7 +492,7 @@ func (prm *PurgedRowManager) GetStorage(basePath string) *PurgedRowStorage {
 	return storage
 }
 
-// CloseAll closes all storages
+// CloseAll closes all storages.
 func (prm *PurgedRowManager) CloseAll() error {
 	prm.mutex.Lock()
 	defer prm.mutex.Unlock()

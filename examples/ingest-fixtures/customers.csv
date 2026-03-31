@@ -1,0 +1,3 @@
+customer_id,first_name,last_name,email,mobile,postcode,status,preference
+1001,Alice,Nguyen,alice@example.com,0400111222,3000,active,email
+1002,Bob,Tran,bob@example.com,0400333444,3001,inactive,sms

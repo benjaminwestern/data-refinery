@@ -272,13 +272,13 @@ func TestEnhancedPathParsing(t *testing.T) {
 		name        string
 		path        string
 		expectError bool
-		expected    []PathComponent
+		expected    []Component
 	}{
 		{
 			name:        "Simple path",
 			path:        "user.name",
 			expectError: false,
-			expected: []PathComponent{
+			expected: []Component{
 				{Key: "user", IsArrayAccess: false, IsWildcard: false, ArrayIndex: -1},
 				{Key: "name", IsArrayAccess: false, IsWildcard: false, ArrayIndex: -1},
 			},
@@ -287,7 +287,7 @@ func TestEnhancedPathParsing(t *testing.T) {
 			name:        "Array access",
 			path:        "users[0].name",
 			expectError: false,
-			expected: []PathComponent{
+			expected: []Component{
 				{Key: "users", IsArrayAccess: true, IsWildcard: false, ArrayIndex: 0},
 				{Key: "name", IsArrayAccess: false, IsWildcard: false, ArrayIndex: -1},
 			},
@@ -296,7 +296,7 @@ func TestEnhancedPathParsing(t *testing.T) {
 			name:        "Wildcard array access",
 			path:        "users[*].name",
 			expectError: false,
-			expected: []PathComponent{
+			expected: []Component{
 				{Key: "users", IsArrayAccess: true, IsWildcard: true, ArrayIndex: -1},
 				{Key: "name", IsArrayAccess: false, IsWildcard: false, ArrayIndex: -1},
 			},
@@ -305,7 +305,7 @@ func TestEnhancedPathParsing(t *testing.T) {
 			name:        "Complex nested path",
 			path:        "orders[*].items[0].product.name",
 			expectError: false,
-			expected: []PathComponent{
+			expected: []Component{
 				{Key: "orders", IsArrayAccess: true, IsWildcard: true, ArrayIndex: -1},
 				{Key: "items", IsArrayAccess: true, IsWildcard: false, ArrayIndex: 0},
 				{Key: "product", IsArrayAccess: false, IsWildcard: false, ArrayIndex: -1},

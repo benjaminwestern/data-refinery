@@ -9,9 +9,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// InputComponent represents a general input component for various input types
+// InputComponent represents a general input component for various input types.
 type InputComponent struct {
-	BaseComponent
+	baseComponent
 	input        textinput.Model
 	title        string
 	placeholder  string
@@ -24,17 +24,17 @@ type InputComponent struct {
 	height       int
 }
 
-// InputComponentOption is a function option for configuring InputComponent
+// InputComponentOption is a function option for configuring InputComponent.
 type InputComponentOption func(*InputComponent)
 
-// WithTitle sets the title for the input component
+// WithTitle sets the title for the input component.
 func WithTitle(title string) InputComponentOption {
 	return func(ic *InputComponent) {
 		ic.title = title
 	}
 }
 
-// WithPlaceholder sets the placeholder text
+// WithPlaceholder sets the placeholder text.
 func WithPlaceholder(placeholder string) InputComponentOption {
 	return func(ic *InputComponent) {
 		ic.placeholder = placeholder
@@ -42,28 +42,28 @@ func WithPlaceholder(placeholder string) InputComponentOption {
 	}
 }
 
-// WithDescription sets the description text
+// WithDescription sets the description text.
 func WithDescription(description string) InputComponentOption {
 	return func(ic *InputComponent) {
 		ic.description = description
 	}
 }
 
-// WithValidation sets the validation function
+// WithValidation sets the validation function.
 func WithValidation(fn func(string) error) InputComponentOption {
 	return func(ic *InputComponent) {
 		ic.validateFunc = fn
 	}
 }
 
-// WithSubmitHandler sets the submit handler
+// WithSubmitHandler sets the submit handler.
 func WithSubmitHandler(fn func(string) tea.Cmd) InputComponentOption {
 	return func(ic *InputComponent) {
 		ic.submitFunc = fn
 	}
 }
 
-// WithWidth sets the input width
+// WithWidth sets the input width.
 func WithWidth(width int) InputComponentOption {
 	return func(ic *InputComponent) {
 		ic.width = width
@@ -71,27 +71,27 @@ func WithWidth(width int) InputComponentOption {
 	}
 }
 
-// WithCharLimit sets the character limit
+// WithCharLimit sets the character limit.
 func WithCharLimit(limit int) InputComponentOption {
 	return func(ic *InputComponent) {
 		ic.input.CharLimit = limit
 	}
 }
 
-// WithEchoMode sets the echo mode (for password fields)
+// WithEchoMode sets the echo mode (for password fields).
 func WithEchoMode(mode textinput.EchoMode) InputComponentOption {
 	return func(ic *InputComponent) {
 		ic.input.EchoMode = mode
 	}
 }
 
-// NewInputComponent creates a new input component
+// NewInputComponent creates a new input component.
 func NewInputComponent(opts ...InputComponentOption) *InputComponent {
 	input := textinput.New()
 	input.Focus()
 
 	ic := &InputComponent{
-		BaseComponent: BaseComponent{focused: true}, // Initialize as focused
+		baseComponent: baseComponent{focused: true}, // Initialize as focused
 		input:         input,
 		title:         "Input",
 		placeholder:   "Enter value...",
@@ -112,50 +112,23 @@ func NewInputComponent(opts ...InputComponentOption) *InputComponent {
 	return ic
 }
 
-// Init initializes the input component
+// Init initializes the input component.
 func (ic *InputComponent) Init() tea.Cmd {
 	return textinput.Blink
 }
 
-// Update handles input component updates
+// Update handles input component updates.
 func (ic *InputComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.Type {
-		case tea.KeyEnter:
-			if ic.submitted {
-				return ic, nil
-			}
+		if msg.Type == tea.KeyEnter {
+			return ic.handleEnter()
+		}
 
-			value := ic.input.Value()
-
-			// Validate input
-			if ic.validateFunc != nil {
-				if err := ic.validateFunc(value); err != nil {
-					ic.errorMessage = err.Error()
-					return ic, nil
-				}
-			}
-
-			// Clear error message
-			ic.errorMessage = ""
-			ic.submitted = true
-
-			// Call submit handler
-			if ic.submitFunc != nil {
-				cmd = ic.submitFunc(value)
-			}
-
-			return ic, cmd
-
-		case tea.KeyEsc:
-			// Clear input and error
-			ic.input.SetValue("")
-			ic.errorMessage = ""
-			ic.submitted = false
-			return ic, nil
+		if msg.Type == tea.KeyEsc {
+			return ic.handleEscape()
 		}
 	}
 
@@ -164,7 +137,36 @@ func (ic *InputComponent) Update(msg tea.Msg) (Component, tea.Cmd) {
 	return ic, cmd
 }
 
-// View renders the input component
+func (ic *InputComponent) handleEnter() (Component, tea.Cmd) {
+	if ic.submitted {
+		return ic, nil
+	}
+
+	value := ic.input.Value()
+	if ic.validateFunc != nil {
+		if err := ic.validateFunc(value); err != nil {
+			ic.errorMessage = err.Error()
+			return ic, nil
+		}
+	}
+
+	ic.errorMessage = ""
+	ic.submitted = true
+	if ic.submitFunc == nil {
+		return ic, nil
+	}
+
+	return ic, ic.submitFunc(value)
+}
+
+func (ic *InputComponent) handleEscape() (Component, tea.Cmd) {
+	ic.input.SetValue("")
+	ic.errorMessage = ""
+	ic.submitted = false
+	return ic, nil
+}
+
+// View renders the input component.
 func (ic *InputComponent) View() string {
 	var b strings.Builder
 
@@ -223,50 +225,50 @@ func (ic *InputComponent) View() string {
 	return b.String()
 }
 
-// Focus sets focus to the input component
+// Focus sets focus to the input component.
 func (ic *InputComponent) Focus() {
-	ic.BaseComponent.Focus()
+	ic.baseComponent.Focus()
 	ic.input.Focus()
 }
 
-// Blur removes focus from the input component
+// Blur removes focus from the input component.
 func (ic *InputComponent) Blur() {
-	ic.BaseComponent.Blur()
+	ic.baseComponent.Blur()
 	ic.input.Blur()
 }
 
-// SetValue sets the input value
+// SetValue sets the input value.
 func (ic *InputComponent) SetValue(value string) {
 	ic.input.SetValue(value)
 	ic.submitted = false
 	ic.errorMessage = ""
 }
 
-// GetValue returns the current input value
+// GetValue returns the current input value.
 func (ic *InputComponent) GetValue() string {
 	return ic.input.Value()
 }
 
-// IsSubmitted returns whether the input has been submitted
+// IsSubmitted returns whether the input has been submitted.
 func (ic *InputComponent) IsSubmitted() bool {
 	return ic.submitted
 }
 
-// Reset resets the input component
+// Reset resets the input component.
 func (ic *InputComponent) Reset() {
 	ic.input.SetValue("")
 	ic.errorMessage = ""
 	ic.submitted = false
 }
 
-// SetSize sets the component size
+// SetSize sets the component size.
 func (ic *InputComponent) SetSize(width, height int) {
 	ic.width = width
 	ic.height = height
 	ic.input.Width = width - 4 // Account for borders and padding
 }
 
-// PathInputComponent creates a specialized path input component
+// NewPathInputComponent creates a specialised path input component.
 func NewPathInputComponent(onSubmit func(string) tea.Cmd) *InputComponent {
 	return NewInputComponent(
 		WithTitle("Data Source Path"),
@@ -284,7 +286,7 @@ func NewPathInputComponent(onSubmit func(string) tea.Cmd) *InputComponent {
 	)
 }
 
-// KeyInputComponent creates a specialized GCS key input component
+// NewKeyInputComponent creates a specialised GCS key input component.
 func NewKeyInputComponent(onSubmit func(string) tea.Cmd) *InputComponent {
 	return NewInputComponent(
 		WithTitle("GCS Service Account Key"),
@@ -306,7 +308,7 @@ func NewKeyInputComponent(onSubmit func(string) tea.Cmd) *InputComponent {
 	)
 }
 
-// LogPathInputComponent creates a specialized log path input component
+// NewLogPathInputComponent creates a specialised log path input component.
 func NewLogPathInputComponent(onSubmit func(string) tea.Cmd) *InputComponent {
 	return NewInputComponent(
 		WithTitle("Log Output Path"),
@@ -314,7 +316,7 @@ func NewLogPathInputComponent(onSubmit func(string) tea.Cmd) *InputComponent {
 		WithDescription("Specify where to save log files. Leave empty to use default location."),
 		WithWidth(60),
 		WithCharLimit(300),
-		WithValidation(func(value string) error {
+		WithValidation(func(_ string) error {
 			// Log path is optional, so empty is valid
 			return nil
 		}),
@@ -322,7 +324,7 @@ func NewLogPathInputComponent(onSubmit func(string) tea.Cmd) *InputComponent {
 	)
 }
 
-// UniqueKeyInputComponent creates a specialized unique key input component
+// NewUniqueKeyInputComponent creates a specialised unique-key input component.
 func NewUniqueKeyInputComponent(onSubmit func(string) tea.Cmd) *InputComponent {
 	return NewInputComponent(
 		WithTitle("Unique Key Field"),
@@ -344,7 +346,7 @@ func NewUniqueKeyInputComponent(onSubmit func(string) tea.Cmd) *InputComponent {
 	)
 }
 
-// WorkersInputComponent creates a specialized workers input component
+// NewWorkersInputComponent creates a specialised worker-count input component.
 func NewWorkersInputComponent(onSubmit func(string) tea.Cmd) *InputComponent {
 	return NewInputComponent(
 		WithTitle("Number of Workers"),

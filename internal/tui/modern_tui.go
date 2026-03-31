@@ -1,4 +1,4 @@
-// internal/tui/modern_tui.go
+// Package tui runs the interactive terminal experience for data-refinery.
 package tui
 
 import (
@@ -12,17 +12,18 @@ import (
 
 	"github.com/benjaminwestern/data-refinery/internal/config"
 	"github.com/benjaminwestern/data-refinery/internal/memory"
+	"github.com/benjaminwestern/data-refinery/internal/safety"
 	"github.com/benjaminwestern/data-refinery/internal/state"
 	"github.com/benjaminwestern/data-refinery/internal/tui/components"
 )
 
-// ModernTUI represents the new component-based TUI
+// ModernTUI represents the new component-based TUI.
 type ModernTUI struct {
 	componentManager *components.ComponentManager
 	state            *components.SharedState
 }
 
-// NewModernTUI creates a new component-based TUI
+// NewModernTUI creates a new component-based TUI.
 func NewModernTUI(cfg *config.Config) (*ModernTUI, error) {
 	cfg.GCSAvailable = testGCSClientModern()
 
@@ -61,7 +62,7 @@ func NewModernTUI(cfg *config.Config) (*ModernTUI, error) {
 	}, nil
 }
 
-// Run starts the modern TUI
+// Run starts the modern TUI.
 func (m *ModernTUI) Run() (*config.Config, bool, bool, error) {
 	// Start the TUI
 	p := tea.NewProgram(m.componentManager, tea.WithAltScreen())
@@ -85,7 +86,7 @@ func (m *ModernTUI) Run() (*config.Config, bool, bool, error) {
 	return m.state.Config, m.state.WantsToRestart, m.state.WantsToStartNew, nil
 }
 
-// testGCSClientModern tests if GCS is available (renamed to avoid conflicts)
+// testGCSClientModern tests if GCS is available (renamed to avoid conflicts).
 func testGCSClientModern() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -95,21 +96,21 @@ func testGCSClientModern() bool {
 		log.Printf("GCS client pre-flight check failed: %v. GCS functionality will be disabled.", err)
 		return false
 	}
-	client.Close()
+	safety.Close(client, "GCS preflight client")
 	return true
 }
 
-// GetCurrentState returns the current shared state
+// GetCurrentState returns the current shared state.
 func (m *ModernTUI) GetCurrentState() *components.SharedState {
 	return m.state
 }
 
-// SetViewState changes the current view state
+// SetViewState changes the current view state.
 func (m *ModernTUI) SetViewState(viewState components.ViewState) {
 	m.state.ViewState = viewState
 }
 
-// GetComponentManager returns the component manager
+// GetComponentManager returns the component manager.
 func (m *ModernTUI) GetComponentManager() *components.ComponentManager {
 	return m.componentManager
 }

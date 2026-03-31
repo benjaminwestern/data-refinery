@@ -1,3 +1,4 @@
+// Package config defines application configuration loading, validation, and defaults.
 package config
 
 import (
@@ -28,7 +29,7 @@ type Config struct {
 	IsValidationRun             bool   `json:"isValidationRun"`
 	ShowFolderBreakdown         bool   `json:"showFolderBreakdown"`
 	EnableTxtOutput             bool   `json:"enableTxtOutput"`
-	EnableJsonOutput            bool   `json:"enableJsonOutput"`
+	EnableJSONOutput            bool   `json:"enableJsonOutput"`
 	PurgeIDs                    bool   `json:"purgeIds"`
 	PurgeRows                   bool   `json:"purgeRows"`
 	GCSAvailable                bool   `json:"-"` // Runtime flag; not persisted to config.
@@ -341,9 +342,11 @@ func loadFromEnv(config *Config) error {
 		config.Key = key
 	}
 	if workers := os.Getenv("DATA_REFINERY_WORKERS"); workers != "" {
-		if w, err := strconv.Atoi(workers); err == nil {
-			config.Workers = w
+		w, err := strconv.Atoi(workers)
+		if err != nil {
+			return fmt.Errorf("invalid DATA_REFINERY_WORKERS value %q: %w", workers, err)
 		}
+		config.Workers = w
 	}
 	if logPath := os.Getenv("DATA_REFINERY_LOG_PATH"); logPath != "" {
 		config.LogPath = logPath
@@ -369,6 +372,7 @@ func loadFromFile(config *Config) (string, error) {
 	}
 
 	for _, path := range configPaths {
+		//nolint:gosec // Config files are intentionally loaded from explicit user/system paths.
 		if _, err := os.Stat(path); err == nil {
 			return loadFileAtPath(config, path)
 		}
@@ -463,6 +467,7 @@ func LoadAdvanced(path string) (*Config, error) {
 }
 
 func loadFileAtPath(config *Config, path string) (string, error) {
+	//nolint:gosec // Config discovery intentionally reads explicit local file paths.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("failed to read config file %s: %w", path, err)
@@ -484,7 +489,7 @@ func normalizeConfigPath(path string) string {
 
 // Save writes the configuration to `config/config.json`.
 func (c *Config) Save() error {
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
@@ -494,7 +499,7 @@ func (c *Config) Save() error {
 		return fmt.Errorf("failed to marshal config to json: %w", err)
 	}
 
-	if err := os.WriteFile(configPath, data, 0o644); err != nil {
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
 		return fmt.Errorf("failed to write config file to %s: %w", configPath, err)
 	}
 
@@ -510,7 +515,7 @@ func defaultConfig() *Config {
 		CheckRow:            true,
 		ShowFolderBreakdown: true,
 		EnableTxtOutput:     false,
-		EnableJsonOutput:    false,
+		EnableJSONOutput:    false,
 		PurgeIDs:            false,
 		PurgeRows:           false,
 		Key:                 "id",
@@ -620,7 +625,7 @@ func (c *Config) IsAdvancedEnabled() bool {
 // GetEffectiveWorkers returns the worker count after performance limits apply.
 func (c *Config) GetEffectiveWorkers() int {
 	if c.Performance != nil {
-		return min(max(c.Workers, c.Performance.MinWorkers), c.Performance.MaxWorkers)
+		return minInt(maxInt(c.Workers, c.Performance.MinWorkers), c.Performance.MaxWorkers)
 	}
 	return c.Workers
 }
@@ -643,9 +648,15 @@ func (c *Config) GetBackupDir() string {
 
 // Clone creates a deep copy of the configuration.
 func (c *Config) Clone() *Config {
-	data, _ := json.Marshal(c)
+	data, err := json.Marshal(c)
+	if err != nil {
+		clone := *c
+		return &clone
+	}
 	var clone Config
-	json.Unmarshal(data, &clone)
+	if err := json.Unmarshal(data, &clone); err != nil {
+		clone = *c
+	}
 	return &clone
 }
 
@@ -669,7 +680,7 @@ func (c *Config) Merge(other *Config) {
 	c.CheckRow = other.CheckRow
 	c.ShowFolderBreakdown = other.ShowFolderBreakdown
 	c.EnableTxtOutput = other.EnableTxtOutput
-	c.EnableJsonOutput = other.EnableJsonOutput
+	c.EnableJSONOutput = other.EnableJSONOutput
 	c.PurgeIDs = other.PurgeIDs
 	c.PurgeRows = other.PurgeRows
 
@@ -715,14 +726,14 @@ func (c *Config) Merge(other *Config) {
 }
 
 // Helper functions for min/max since they're not available in older Go versions.
-func min(a, b int) int {
+func minInt(a, b int) int {
 	if a < b {
 		return a
 	}
 	return b
 }
 
-func max(a, b int) int {
+func maxInt(a, b int) int {
 	if a > b {
 		return a
 	}

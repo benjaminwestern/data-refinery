@@ -1,3 +1,4 @@
+// Package theme defines terminal colour and styling themes for the TUI.
 package theme
 
 import (
@@ -6,7 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// ColorScheme defines the color palette for the TUI
+// ColorScheme defines the color palette for the TUI.
 type ColorScheme struct {
 	// Primary colors
 	Primary   lipgloss.Color
@@ -32,7 +33,7 @@ type ColorScheme struct {
 	Disabled lipgloss.Color
 }
 
-// Theme defines the complete styling theme for the TUI
+// Theme defines the complete styling theme for the TUI.
 type Theme struct {
 	Name          string
 	Description   string
@@ -44,7 +45,7 @@ type Theme struct {
 	Accessibility AccessibilityStyles
 }
 
-// TypographyStyles defines text styling
+// TypographyStyles defines text styling.
 type TypographyStyles struct {
 	// Headings
 	H1 lipgloss.Style
@@ -65,7 +66,7 @@ type TypographyStyles struct {
 	Code    lipgloss.Style
 }
 
-// ComponentStyles defines component-specific styling
+// ComponentStyles defines component-specific styling.
 type ComponentStyles struct {
 	// Input components
 	TextInput ComponentStyle
@@ -89,7 +90,7 @@ type ComponentStyles struct {
 	Notification ComponentStyle
 }
 
-// ComponentStyle defines styling for a single component
+// ComponentStyle defines styling for a single component.
 type ComponentStyle struct {
 	Base     lipgloss.Style
 	Focused  lipgloss.Style
@@ -99,7 +100,7 @@ type ComponentStyle struct {
 	Error    lipgloss.Style
 }
 
-// LayoutStyles defines layout-specific styling
+// LayoutStyles defines layout-specific styling.
 type LayoutStyles struct {
 	Container lipgloss.Style
 	Section   lipgloss.Style
@@ -109,7 +110,7 @@ type LayoutStyles struct {
 	Spacer    lipgloss.Style
 }
 
-// AnimationStyles defines animation and transition styles
+// AnimationStyles defines animation and transition styles.
 type AnimationStyles struct {
 	FadeIn   lipgloss.Style
 	FadeOut  lipgloss.Style
@@ -119,7 +120,7 @@ type AnimationStyles struct {
 	Loading  lipgloss.Style
 }
 
-// AccessibilityStyles defines accessibility-focused styling
+// AccessibilityStyles defines accessibility-focused styling.
 type AccessibilityStyles struct {
 	HighContrast   bool
 	LargeText      bool
@@ -127,16 +128,16 @@ type AccessibilityStyles struct {
 	ScreenReader   lipgloss.Style
 }
 
-// ThemeManager manages theme application and switching
-type ThemeManager struct {
+// Manager manages theme application and switching.
+type Manager struct {
 	themes        map[string]*Theme
 	activeTheme   string
 	fallbackTheme string
 }
 
-// NewThemeManager creates a new theme manager
-func NewThemeManager() *ThemeManager {
-	tm := &ThemeManager{
+// NewManager creates a new theme manager.
+func NewManager() *Manager {
+	tm := &Manager{
 		themes:        make(map[string]*Theme),
 		activeTheme:   "default",
 		fallbackTheme: "default",
@@ -152,13 +153,13 @@ func NewThemeManager() *ThemeManager {
 	return tm
 }
 
-// RegisterTheme registers a new theme
-func (tm *ThemeManager) RegisterTheme(theme *Theme) {
+// RegisterTheme registers a new theme.
+func (tm *Manager) RegisterTheme(theme *Theme) {
 	tm.themes[theme.Name] = theme
 }
 
-// SetActiveTheme sets the active theme
-func (tm *ThemeManager) SetActiveTheme(name string) error {
+// SetActiveTheme sets the active theme.
+func (tm *Manager) SetActiveTheme(name string) error {
 	if _, exists := tm.themes[name]; !exists {
 		return fmt.Errorf("theme '%s' not found", name)
 	}
@@ -166,8 +167,8 @@ func (tm *ThemeManager) SetActiveTheme(name string) error {
 	return nil
 }
 
-// GetActiveTheme returns the current active theme
-func (tm *ThemeManager) GetActiveTheme() *Theme {
+// GetActiveTheme returns the current active theme.
+func (tm *Manager) GetActiveTheme() *Theme {
 	if theme, exists := tm.themes[tm.activeTheme]; exists {
 		return theme
 	}
@@ -175,16 +176,16 @@ func (tm *ThemeManager) GetActiveTheme() *Theme {
 	return tm.themes[tm.fallbackTheme]
 }
 
-// GetTheme returns a specific theme by name
-func (tm *ThemeManager) GetTheme(name string) *Theme {
+// GetTheme returns a specific theme by name.
+func (tm *Manager) GetTheme(name string) *Theme {
 	if theme, exists := tm.themes[name]; exists {
 		return theme
 	}
 	return nil
 }
 
-// ListThemes returns all available theme names
-func (tm *ThemeManager) ListThemes() []string {
+// ListThemes returns all available theme names.
+func (tm *Manager) ListThemes() []string {
 	names := make([]string, 0, len(tm.themes))
 	for name := range tm.themes {
 		names = append(names, name)
@@ -192,7 +193,7 @@ func (tm *ThemeManager) ListThemes() []string {
 	return names
 }
 
-// createDefaultTheme creates the default theme
+// createDefaultTheme creates the default theme.
 func createDefaultTheme() *Theme {
 	colors := ColorScheme{
 		Primary:    lipgloss.Color("63"),  // Blue
@@ -216,7 +217,7 @@ func createDefaultTheme() *Theme {
 	components := createComponentStyles(colors)
 	layouts := createLayoutStyles(colors)
 	animations := createAnimationStyles(colors)
-	accessibility := createAccessibilityStyles(colors, false, false)
+	accessibility := createAccessibilityStyles(colors, false)
 
 	return &Theme{
 		Name:          "default",
@@ -230,7 +231,7 @@ func createDefaultTheme() *Theme {
 	}
 }
 
-// createDarkTheme creates a dark theme
+// createDarkTheme creates a dark theme.
 func createDarkTheme() *Theme {
 	colors := ColorScheme{
 		Primary:    lipgloss.Color("69"),  // Purple
@@ -254,7 +255,7 @@ func createDarkTheme() *Theme {
 	components := createComponentStyles(colors)
 	layouts := createLayoutStyles(colors)
 	animations := createAnimationStyles(colors)
-	accessibility := createAccessibilityStyles(colors, false, false)
+	accessibility := createAccessibilityStyles(colors, false)
 
 	return &Theme{
 		Name:          "dark",
@@ -268,7 +269,7 @@ func createDarkTheme() *Theme {
 	}
 }
 
-// createLightTheme creates a light theme
+// createLightTheme creates a light theme.
 func createLightTheme() *Theme {
 	colors := ColorScheme{
 		Primary:    lipgloss.Color("21"),  // Blue
@@ -292,7 +293,7 @@ func createLightTheme() *Theme {
 	components := createComponentStyles(colors)
 	layouts := createLayoutStyles(colors)
 	animations := createAnimationStyles(colors)
-	accessibility := createAccessibilityStyles(colors, false, false)
+	accessibility := createAccessibilityStyles(colors, false)
 
 	return &Theme{
 		Name:          "light",
@@ -306,7 +307,7 @@ func createLightTheme() *Theme {
 	}
 }
 
-// createHighContrastTheme creates a high contrast theme for accessibility
+// createHighContrastTheme creates a high contrast theme for accessibility.
 func createHighContrastTheme() *Theme {
 	colors := ColorScheme{
 		Primary:    lipgloss.Color("15"),  // Bright White
@@ -330,7 +331,7 @@ func createHighContrastTheme() *Theme {
 	components := createComponentStyles(colors)
 	layouts := createLayoutStyles(colors)
 	animations := createAnimationStyles(colors)
-	accessibility := createAccessibilityStyles(colors, true, false)
+	accessibility := createAccessibilityStyles(colors, true)
 
 	return &Theme{
 		Name:          "high-contrast",
@@ -344,7 +345,7 @@ func createHighContrastTheme() *Theme {
 	}
 }
 
-// createMinimalTheme creates a minimal theme
+// createMinimalTheme creates a minimal theme.
 func createMinimalTheme() *Theme {
 	colors := ColorScheme{
 		Primary:    lipgloss.Color("255"), // White
@@ -368,7 +369,7 @@ func createMinimalTheme() *Theme {
 	components := createComponentStyles(colors)
 	layouts := createLayoutStyles(colors)
 	animations := createAnimationStyles(colors)
-	accessibility := createAccessibilityStyles(colors, false, false)
+	accessibility := createAccessibilityStyles(colors, false)
 
 	return &Theme{
 		Name:          "minimal",
@@ -382,7 +383,7 @@ func createMinimalTheme() *Theme {
 	}
 }
 
-// createTypographyStyles creates typography styles from color scheme
+// createTypographyStyles creates typography styles from color scheme.
 func createTypographyStyles(colors ColorScheme) TypographyStyles {
 	return TypographyStyles{
 		H1: lipgloss.NewStyle().
@@ -426,7 +427,7 @@ func createTypographyStyles(colors ColorScheme) TypographyStyles {
 	}
 }
 
-// createComponentStyles creates component styles from color scheme
+// createComponentStyles creates component styles from color scheme.
 func createComponentStyles(colors ColorScheme) ComponentStyles {
 	return ComponentStyles{
 		TextInput: ComponentStyle{
@@ -537,7 +538,7 @@ func createComponentStyles(colors ColorScheme) ComponentStyles {
 	}
 }
 
-// createLayoutStyles creates layout styles from color scheme
+// createLayoutStyles creates layout styles from color scheme.
 func createLayoutStyles(colors ColorScheme) LayoutStyles {
 	return LayoutStyles{
 		Container: lipgloss.NewStyle().
@@ -555,7 +556,7 @@ func createLayoutStyles(colors ColorScheme) LayoutStyles {
 	}
 }
 
-// createAnimationStyles creates animation styles from color scheme
+// createAnimationStyles creates animation styles from color scheme.
 func createAnimationStyles(colors ColorScheme) AnimationStyles {
 	return AnimationStyles{
 		FadeIn: lipgloss.NewStyle().
@@ -569,8 +570,8 @@ func createAnimationStyles(colors ColorScheme) AnimationStyles {
 	}
 }
 
-// createAccessibilityStyles creates accessibility styles
-func createAccessibilityStyles(colors ColorScheme, highContrast, largeText bool) AccessibilityStyles {
+// createAccessibilityStyles creates accessibility styles.
+func createAccessibilityStyles(colors ColorScheme, highContrast bool) AccessibilityStyles {
 	focusIndicator := lipgloss.NewStyle().
 		Border(lipgloss.DoubleBorder()).
 		BorderForeground(colors.Primary)
@@ -583,20 +584,20 @@ func createAccessibilityStyles(colors ColorScheme, highContrast, largeText bool)
 
 	return AccessibilityStyles{
 		HighContrast:   highContrast,
-		LargeText:      largeText,
+		LargeText:      false,
 		FocusIndicator: focusIndicator,
 		ScreenReader: lipgloss.NewStyle().
 			Foreground(colors.Foreground),
 	}
 }
 
-// ApplyTheme applies theme styles to components
+// ApplyTheme applies theme styles to components.
 func (t *Theme) ApplyTheme() {
 	// This would be called to apply the theme globally
 	// Implementation depends on how the TUI components are structured
 }
 
-// GetComponentStyle returns the appropriate component style
+// GetComponentStyle returns the appropriate component style.
 func (t *Theme) GetComponentStyle(component string, state string) lipgloss.Style {
 	var componentStyle ComponentStyle
 
@@ -641,7 +642,7 @@ func (t *Theme) GetComponentStyle(component string, state string) lipgloss.Style
 	}
 }
 
-// GetTypographyStyle returns the appropriate typography style
+// GetTypographyStyle returns the appropriate typography style.
 func (t *Theme) GetTypographyStyle(element string) lipgloss.Style {
 	switch element {
 	case "h1":
@@ -673,7 +674,7 @@ func (t *Theme) GetTypographyStyle(element string) lipgloss.Style {
 	}
 }
 
-// GetLayoutStyle returns the appropriate layout style
+// GetLayoutStyle returns the appropriate layout style.
 func (t *Theme) GetLayoutStyle(element string) lipgloss.Style {
 	switch element {
 	case "container":
@@ -693,12 +694,12 @@ func (t *Theme) GetLayoutStyle(element string) lipgloss.Style {
 	}
 }
 
-// IsAccessibilityEnabled returns whether accessibility features are enabled
+// IsAccessibilityEnabled returns whether accessibility features are enabled.
 func (t *Theme) IsAccessibilityEnabled() bool {
 	return t.Accessibility.HighContrast || t.Accessibility.LargeText
 }
 
-// GetAccessibilityFocusStyle returns the accessibility focus indicator style
+// GetAccessibilityFocusStyle returns the accessibility focus indicator style.
 func (t *Theme) GetAccessibilityFocusStyle() lipgloss.Style {
 	return t.Accessibility.FocusIndicator
 }

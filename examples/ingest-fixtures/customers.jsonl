@@ -1,0 +1,2 @@
+{"identifier":"2001","profile":{"first_name":"Charlie","last_name":"King","email":"charlie@example.com"},"phone":"0400555666","postal_code":"3002","source":"api","notes":"vip"}
+{"identifier":"2002","profile":{"first_name":"Dana","last_name":"Lee","email":"dana@example.com"},"phone":"0400777888","postal_code":"3003","source":"crm","segment":"renewal"}

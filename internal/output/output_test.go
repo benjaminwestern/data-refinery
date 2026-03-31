@@ -18,7 +18,7 @@ import (
 
 func TestNewOutputManager(t *testing.T) {
 	basePath := "/tmp/test_output"
-	om := NewOutputManager(basePath)
+	om := newOutputManager(basePath)
 
 	if om == nil {
 		t.Fatal("Expected output manager to be created")
@@ -44,7 +44,7 @@ func TestOutputManager_CreateOutputFile(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	om := NewOutputManager(tmpDir)
+	om := newOutputManager(tmpDir)
 
 	// Test creating a new file
 	filePath, err := om.CreateOutputFile("test", "json")
@@ -80,7 +80,7 @@ func TestOutputManager_WriteJSONLine(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	om := NewOutputManager(tmpDir)
+	om := newOutputManager(tmpDir)
 
 	// Create a test file
 	filePath, err := om.CreateOutputFile("test", "json")
@@ -124,11 +124,11 @@ func TestOutputManager_WriteSearchResults(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	om := NewOutputManager(tmpDir)
+	om := newOutputManager(tmpDir)
 
 	// Create mock search results
-	searchResults := &search.SearchResults{
-		Summary: search.SearchSummary{
+	searchResults := &search.Results{
+		Summary: search.Summary{
 			TotalMatches: 2,
 			MatchesByTarget: map[string]int{
 				"test_target": 1,
@@ -179,7 +179,7 @@ func TestOutputManager_WriteSchemaResults(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	om := NewOutputManager(tmpDir)
+	om := newOutputManager(tmpDir)
 
 	// Create mock schema analyzer
 	schemaConfig := config.SchemaDiscoveryConfig{
@@ -229,10 +229,10 @@ func TestOutputManager_WriteDeletionResults(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	om := NewOutputManager(tmpDir)
+	om := newOutputManager(tmpDir)
 
 	// Create mock deletion results
-	deletionResults := &deletion.DeletionStats{
+	deletionResults := &deletion.Stats{
 		TotalRows:     100,
 		ProcessedRows: 90,
 		DeletedRows:   10,
@@ -281,7 +281,7 @@ func TestOutputManager_ProcessSources(t *testing.T) {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
-	om := NewOutputManager(tmpDir)
+	om := newOutputManager(tmpDir)
 
 	// Create mock source
 	sources := []source.InputSource{
@@ -296,12 +296,12 @@ func TestOutputManager_ProcessSources(t *testing.T) {
 }
 
 func TestOutputManager_SetResults(t *testing.T) {
-	om := NewOutputManager("/tmp/test")
+	om := newOutputManager("/tmp/test")
 
 	// Test setting search results
-	searchResults := &search.SearchResults{
+	searchResults := &search.Results{
 		Results: make(map[string][]search.MatchResult),
-		Summary: search.SearchSummary{
+		Summary: search.Summary{
 			TotalMatches: 5,
 		},
 	}
@@ -324,7 +324,7 @@ func TestOutputManager_SetResults(t *testing.T) {
 	}
 
 	// Test setting deletion results
-	deletionResults := &deletion.DeletionStats{
+	deletionResults := &deletion.Stats{
 		TotalRows: 100,
 	}
 	om.SetDeletionResults(deletionResults)
@@ -341,7 +341,7 @@ func TestOutputManager_Close(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	om := NewOutputManager(tmpDir)
+	om := newOutputManager(tmpDir)
 
 	// Create multiple files
 	_, err = om.CreateOutputFile("test1", "json")
@@ -369,7 +369,7 @@ func TestOutputManager_Close(t *testing.T) {
 
 func TestOutputManager_GetOutputPath(t *testing.T) {
 	basePath := "/tmp/test_output"
-	om := NewOutputManager(basePath)
+	om := newOutputManager(basePath)
 
 	outputPath := om.GetOutputPath("test", "json")
 	expectedPath := filepath.Join(basePath, "test_"+om.timestamp+".json")
@@ -379,7 +379,7 @@ func TestOutputManager_GetOutputPath(t *testing.T) {
 }
 
 func TestOutputManager_GetTimestamp(t *testing.T) {
-	om := NewOutputManager("/tmp/test")
+	om := newOutputManager("/tmp/test")
 
 	timestamp := om.GetTimestamp()
 	if timestamp == "" {
@@ -400,7 +400,7 @@ func TestOutputManager_FlushAll(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	om := NewOutputManager(tmpDir)
+	om := newOutputManager(tmpDir)
 
 	// Create and write to a file
 	filePath, err := om.CreateOutputFile("test", "json")
@@ -431,7 +431,7 @@ func TestOutputManager_CreateDirectory(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	om := NewOutputManager(tmpDir)
+	om := newOutputManager(tmpDir)
 
 	// Create a subdirectory
 	subDir := filepath.Join(tmpDir, "subdir")
@@ -459,7 +459,7 @@ func TestOutputManager_WriteMetadata(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	om := NewOutputManager(tmpDir)
+	om := newOutputManager(tmpDir)
 
 	metadata := map[string]any{
 		"version":     "1.0.0",
@@ -502,10 +502,10 @@ func TestOutputManager_GenerateReport(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	om := NewOutputManager(tmpDir)
+	om := newOutputManager(tmpDir)
 
 	// Set up mock data
-	searchResults := &search.SearchResults{
+	searchResults := &search.Results{
 		Results: map[string][]search.MatchResult{
 			"test_target": {
 				{
@@ -516,7 +516,7 @@ func TestOutputManager_GenerateReport(t *testing.T) {
 				},
 			},
 		},
-		Summary: search.SearchSummary{
+		Summary: search.Summary{
 			TotalMatches: 10,
 		},
 	}
@@ -555,7 +555,7 @@ func TestWriteAdvancedArtifacts(t *testing.T) {
 	}
 
 	rep := &report.AnalysisReport{
-		SearchResults: &search.SearchResults{
+		SearchResults: &search.Results{
 			Results: map[string][]search.MatchResult{
 				"target_email": {
 					{
@@ -571,9 +571,9 @@ func TestWriteAdvancedArtifacts(t *testing.T) {
 					},
 				},
 			},
-			Summary: search.SearchSummary{TotalMatches: 1, ProcessedRows: 1},
+			Summary: search.Summary{TotalMatches: 1, ProcessedRows: 1},
 		},
-		SchemaReport: &schema.SchemaReport{
+		SchemaReport: &schema.Report{
 			GlobalSchema: &schema.Schema{
 				Fields: map[string]*schema.FieldSchema{
 					"email": {
@@ -588,7 +588,7 @@ func TestWriteAdvancedArtifacts(t *testing.T) {
 			SampledRows: 1,
 			SampleRate:  1,
 		},
-		DeletionStats: &deletion.DeletionStats{
+		DeletionStats: &deletion.Stats{
 			TotalRows:       1,
 			ProcessedRows:   1,
 			ModifiedRows:    1,

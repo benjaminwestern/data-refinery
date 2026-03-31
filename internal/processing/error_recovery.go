@@ -8,54 +8,57 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/benjaminwestern/data-refinery/internal/safety"
 )
 
 var (
-	ErrRecoveryFailed    = errors.New("recovery failed")
-	ErrNoRecoveryHandler = errors.New("no recovery handler found")
-	ErrRecoveryTimeout   = errors.New("recovery timeout")
-	ErrRecoveryDisabled  = errors.New("recovery is disabled")
+	errRecoveryFailed    = errors.New("recovery failed")
+	errNoRecoveryHandler = errors.New("no recovery handler found")
+	errRecoveryDisabled  = errors.New("recovery is disabled")
 )
 
-// RecoveryStrategy defines how to recover from specific errors
+const unknownLabel = "UNKNOWN"
+
+// RecoveryStrategy defines how to recover from specific errors.
 type RecoveryStrategy interface {
 	CanRecover(error) bool
 	Recover(context.Context, error) error
 	Name() string
 }
 
-// RecoveryAction defines the action to take during recovery
+// RecoveryAction defines the action to take during recovery.
 type RecoveryAction int
 
 const (
-	ActionRetry RecoveryAction = iota
-	ActionFallback
-	ActionCircuitBreaker
-	ActionGracefulDegradation
-	ActionSkip
-	ActionAbort
+	actionRetry RecoveryAction = iota
+	actionFallback
+	actionCircuitBreaker
+	actionGracefulDegradation
+	actionSkip
+	actionAbort
 )
 
 func (a RecoveryAction) String() string {
 	switch a {
-	case ActionRetry:
+	case actionRetry:
 		return "RETRY"
-	case ActionFallback:
+	case actionFallback:
 		return "FALLBACK"
-	case ActionCircuitBreaker:
+	case actionCircuitBreaker:
 		return "CIRCUIT_BREAKER"
-	case ActionGracefulDegradation:
+	case actionGracefulDegradation:
 		return "GRACEFUL_DEGRADATION"
-	case ActionSkip:
+	case actionSkip:
 		return "SKIP"
-	case ActionAbort:
+	case actionAbort:
 		return "ABORT"
 	default:
-		return "UNKNOWN"
+		return unknownLabel
 	}
 }
 
-// RecoveryContext provides context for recovery operations
+// RecoveryContext provides context for recovery operations.
 type RecoveryContext struct {
 	OriginalError    error
 	Attempt          int
@@ -66,7 +69,7 @@ type RecoveryContext struct {
 	ResourceLimits   *ResourceLimits
 }
 
-// ResourceLimits defines limits for resource usage during recovery
+// ResourceLimits defines limits for resource usage during recovery.
 type ResourceLimits struct {
 	MaxCPUUsage    float64
 	MaxMemoryUsage int64
@@ -74,7 +77,7 @@ type ResourceLimits struct {
 	MaxDuration    time.Duration
 }
 
-// RecoveryResult contains the result of a recovery operation
+// RecoveryResult contains the result of a recovery operation.
 type RecoveryResult struct {
 	Success     bool
 	Action      RecoveryAction
@@ -85,7 +88,7 @@ type RecoveryResult struct {
 	Metadata    map[string]interface{}
 }
 
-// ErrorRecoverySystem manages error recovery for the system
+// ErrorRecoverySystem manages error recovery for the system.
 type ErrorRecoverySystem struct {
 	strategies      []RecoveryStrategy
 	fallbackHandler RecoveryStrategy
@@ -119,7 +122,7 @@ type ErrorRecoverySystem struct {
 	shutdownWg sync.WaitGroup
 }
 
-// ErrorRecoveryConfig holds configuration for error recovery
+// ErrorRecoveryConfig holds configuration for error recovery.
 type ErrorRecoveryConfig struct {
 	MaxConcurrentRecoveries   int
 	RecoveryTimeout           time.Duration
@@ -132,7 +135,7 @@ type ErrorRecoveryConfig struct {
 	HistorySize               int
 }
 
-// DefaultErrorRecoveryConfig returns default configuration
+// DefaultErrorRecoveryConfig returns default configuration.
 func DefaultErrorRecoveryConfig() ErrorRecoveryConfig {
 	return ErrorRecoveryConfig{
 		MaxConcurrentRecoveries:   10,
@@ -152,7 +155,7 @@ func DefaultErrorRecoveryConfig() ErrorRecoveryConfig {
 	}
 }
 
-// NewErrorRecoverySystem creates a new error recovery system
+// NewErrorRecoverySystem creates a new error recovery system.
 func NewErrorRecoverySystem(config ErrorRecoveryConfig) *ErrorRecoverySystem {
 	if config.MaxConcurrentRecoveries <= 0 {
 		config.MaxConcurrentRecoveries = 10
@@ -170,7 +173,7 @@ func NewErrorRecoverySystem(config ErrorRecoveryConfig) *ErrorRecoverySystem {
 	ers := &ErrorRecoverySystem{
 		config:          config,
 		enabled:         true,
-		maxRecoveries:   int32(config.MaxConcurrentRecoveries),
+		maxRecoveries:   safety.SaturatingInt32(config.MaxConcurrentRecoveries),
 		historySize:     config.HistorySize,
 		recoveryHistory: make([]RecoveryResult, 0, config.HistorySize),
 		strategyUsage:   make(map[string]uint64),
@@ -196,23 +199,23 @@ func NewErrorRecoverySystem(config ErrorRecoveryConfig) *ErrorRecoverySystem {
 	return ers
 }
 
-// registerDefaultStrategies registers default recovery strategies
+// registerDefaultStrategies registers default recovery strategies.
 func (ers *ErrorRecoverySystem) registerDefaultStrategies() {
 	if ers.config.EnableRetry {
-		ers.RegisterStrategy(&RetryRecoveryStrategy{retryer: ers.retryer})
+		ers.RegisterStrategy(&retryRecoveryStrategy{retryer: ers.retryer})
 	}
 	if ers.config.EnableCircuitBreaker {
-		ers.RegisterStrategy(&CircuitBreakerRecoveryStrategy{circuitBreaker: ers.circuitBreaker})
+		ers.RegisterStrategy(&circuitBreakerRecoveryStrategy{circuitBreaker: ers.circuitBreaker})
 	}
 	if ers.config.EnableFallback {
-		ers.RegisterStrategy(&FallbackRecoveryStrategy{})
+		ers.RegisterStrategy(&fallbackRecoveryStrategy{})
 	}
 	if ers.config.EnableGracefulDegradation {
-		ers.RegisterStrategy(&GracefulDegradationStrategy{})
+		ers.RegisterStrategy(&gracefulDegradationStrategy{})
 	}
 }
 
-// RegisterStrategy registers a recovery strategy
+// RegisterStrategy registers a recovery strategy.
 func (ers *ErrorRecoverySystem) RegisterStrategy(strategy RecoveryStrategy) {
 	ers.mu.Lock()
 	defer ers.mu.Unlock()
@@ -221,7 +224,7 @@ func (ers *ErrorRecoverySystem) RegisterStrategy(strategy RecoveryStrategy) {
 	ers.strategyUsage[strategy.Name()] = 0
 }
 
-// SetFallbackHandler sets a fallback handler for when no strategy can recover
+// SetFallbackHandler sets a fallback handler for when no strategy can recover.
 func (ers *ErrorRecoverySystem) SetFallbackHandler(handler RecoveryStrategy) {
 	ers.mu.Lock()
 	defer ers.mu.Unlock()
@@ -229,20 +232,20 @@ func (ers *ErrorRecoverySystem) SetFallbackHandler(handler RecoveryStrategy) {
 	ers.fallbackHandler = handler
 }
 
-// Recover attempts to recover from an error using registered strategies
+// Recover attempts to recover from an error using registered strategies.
 func (ers *ErrorRecoverySystem) Recover(ctx context.Context, err error) (*RecoveryResult, error) {
 	if !ers.enabled {
-		return nil, ErrRecoveryDisabled
+		return nil, errRecoveryDisabled
 	}
 
 	// Check if we can start a new recovery
 	if atomic.LoadInt32(&ers.activeRecoveries) >= ers.maxRecoveries {
 		return &RecoveryResult{
 			Success:     false,
-			Action:      ActionAbort,
+			Action:      actionAbort,
 			Error:       errors.New("too many concurrent recoveries"),
 			RecoveredBy: "system",
-		}, ErrRecoveryFailed
+		}, errRecoveryFailed
 	}
 
 	// Increment active recoveries
@@ -277,7 +280,7 @@ func (ers *ErrorRecoverySystem) Recover(ctx context.Context, err error) (*Recove
 	return result, nil
 }
 
-// tryRecovery attempts recovery using available strategies
+// tryRecovery attempts recovery using available strategies.
 func (ers *ErrorRecoverySystem) tryRecovery(ctx context.Context, recoveryCtx *RecoveryContext) *RecoveryResult {
 	ers.mu.RLock()
 	strategies := make([]RecoveryStrategy, len(ers.strategies))
@@ -295,7 +298,7 @@ func (ers *ErrorRecoverySystem) tryRecovery(ctx context.Context, recoveryCtx *Re
 		case <-ctx.Done():
 			return &RecoveryResult{
 				Success:     false,
-				Action:      ActionAbort,
+				Action:      actionAbort,
 				Error:       ctx.Err(),
 				RecoveredBy: "context",
 			}
@@ -324,7 +327,7 @@ func (ers *ErrorRecoverySystem) tryRecovery(ctx context.Context, recoveryCtx *Re
 				Action:      ers.getActionForStrategy(strategy),
 				Duration:    duration,
 				RecoveredBy: strategy.Name(),
-				NextAction:  ActionRetry,
+				NextAction:  actionRetry,
 				Metadata:    recoveryCtx.Metadata,
 			}
 		}
@@ -343,10 +346,10 @@ func (ers *ErrorRecoverySystem) tryRecovery(ctx context.Context, recoveryCtx *Re
 		if err == nil {
 			return &RecoveryResult{
 				Success:     true,
-				Action:      ActionFallback,
+				Action:      actionFallback,
 				Duration:    duration,
 				RecoveredBy: ers.fallbackHandler.Name(),
-				NextAction:  ActionSkip,
+				NextAction:  actionSkip,
 				Metadata:    recoveryCtx.Metadata,
 			}
 		}
@@ -355,14 +358,14 @@ func (ers *ErrorRecoverySystem) tryRecovery(ctx context.Context, recoveryCtx *Re
 	// No recovery possible
 	return &RecoveryResult{
 		Success:     false,
-		Action:      ActionAbort,
+		Action:      actionAbort,
 		Duration:    time.Since(recoveryCtx.StartTime),
-		Error:       fmt.Errorf("%w: %v", ErrNoRecoveryHandler, recoveryCtx.OriginalError),
+		Error:       fmt.Errorf("%w: %v", errNoRecoveryHandler, recoveryCtx.OriginalError),
 		RecoveredBy: "none",
 	}
 }
 
-// checkResourceLimits checks if resource limits are exceeded
+// checkResourceLimits checks if resource limits are exceeded.
 func (ers *ErrorRecoverySystem) checkResourceLimits(ctx *RecoveryContext) bool {
 	if ctx.ResourceLimits == nil {
 		return true
@@ -401,23 +404,23 @@ func (ers *ErrorRecoverySystem) checkResourceLimits(ctx *RecoveryContext) bool {
 	return true
 }
 
-// getActionForStrategy returns the appropriate action for a strategy
+// getActionForStrategy returns the appropriate action for a strategy.
 func (ers *ErrorRecoverySystem) getActionForStrategy(strategy RecoveryStrategy) RecoveryAction {
 	switch strategy.(type) {
-	case *RetryRecoveryStrategy:
-		return ActionRetry
-	case *CircuitBreakerRecoveryStrategy:
-		return ActionCircuitBreaker
-	case *FallbackRecoveryStrategy:
-		return ActionFallback
-	case *GracefulDegradationStrategy:
-		return ActionGracefulDegradation
+	case *retryRecoveryStrategy:
+		return actionRetry
+	case *circuitBreakerRecoveryStrategy:
+		return actionCircuitBreaker
+	case *fallbackRecoveryStrategy:
+		return actionFallback
+	case *gracefulDegradationStrategy:
+		return actionGracefulDegradation
 	default:
-		return ActionRetry
+		return actionRetry
 	}
 }
 
-// recordRecovery records recovery metrics and history
+// recordRecovery records recovery metrics and history.
 func (ers *ErrorRecoverySystem) recordRecovery(result *RecoveryResult) {
 	ers.mu.Lock()
 	defer ers.mu.Unlock()
@@ -435,8 +438,10 @@ func (ers *ErrorRecoverySystem) recordRecovery(result *RecoveryResult) {
 	// Update average recovery time
 	totalOps := ers.totalRecoveries
 	if totalOps > 0 {
+		totalOpsInt := safety.SaturatingInt64(totalOps)
+		priorOpsInt := safety.SaturatingInt64(totalOps - 1)
 		ers.averageRecoveryTime = time.Duration(
-			(int64(ers.averageRecoveryTime)*int64(totalOps-1) + int64(result.Duration)) / int64(totalOps),
+			(int64(ers.averageRecoveryTime)*priorOpsInt + int64(result.Duration)) / totalOpsInt,
 		)
 	}
 
@@ -447,7 +452,7 @@ func (ers *ErrorRecoverySystem) recordRecovery(result *RecoveryResult) {
 	}
 }
 
-// Enable enables the error recovery system
+// Enable enables the error recovery system.
 func (ers *ErrorRecoverySystem) Enable() {
 	ers.mu.Lock()
 	defer ers.mu.Unlock()
@@ -455,7 +460,7 @@ func (ers *ErrorRecoverySystem) Enable() {
 	ers.enabled = true
 }
 
-// Disable disables the error recovery system
+// Disable disables the error recovery system.
 func (ers *ErrorRecoverySystem) Disable() {
 	ers.mu.Lock()
 	defer ers.mu.Unlock()
@@ -463,7 +468,7 @@ func (ers *ErrorRecoverySystem) Disable() {
 	ers.enabled = false
 }
 
-// IsEnabled returns whether the error recovery system is enabled
+// IsEnabled returns whether the error recovery system is enabled.
 func (ers *ErrorRecoverySystem) IsEnabled() bool {
 	ers.mu.RLock()
 	defer ers.mu.RUnlock()
@@ -471,7 +476,7 @@ func (ers *ErrorRecoverySystem) IsEnabled() bool {
 	return ers.enabled
 }
 
-// ErrorRecoveryMetrics contains metrics about error recovery
+// ErrorRecoveryMetrics contains metrics about error recovery.
 type ErrorRecoveryMetrics struct {
 	TotalRecoveries      uint64
 	SuccessfulRecoveries uint64
@@ -486,7 +491,7 @@ type ErrorRecoveryMetrics struct {
 	ResourceUsage        ResourceUsage
 }
 
-// Metrics returns metrics about the error recovery system
+// Metrics returns metrics about the error recovery system.
 func (ers *ErrorRecoverySystem) Metrics() ErrorRecoveryMetrics {
 	ers.mu.RLock()
 	defer ers.mu.RUnlock()
@@ -527,7 +532,7 @@ func (ers *ErrorRecoverySystem) Metrics() ErrorRecoveryMetrics {
 	}
 }
 
-// Reset resets the error recovery system metrics
+// Reset resets the error recovery system metrics.
 func (ers *ErrorRecoverySystem) Reset() {
 	ers.mu.Lock()
 	defer ers.mu.Unlock()
@@ -545,7 +550,7 @@ func (ers *ErrorRecoverySystem) Reset() {
 	}
 }
 
-// Shutdown shuts down the error recovery system
+// Shutdown shuts down the error recovery system.
 func (ers *ErrorRecoverySystem) Shutdown(ctx context.Context) error {
 	close(ers.shutdownCh)
 
@@ -560,29 +565,29 @@ func (ers *ErrorRecoverySystem) Shutdown(ctx context.Context) error {
 	case <-done:
 		return nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("error recovery shutdown cancelled: %w", ctx.Err())
 	}
 }
 
 // Concrete Recovery Strategy Implementations
 
-// RetryRecoveryStrategy implements retry-based recovery
-type RetryRecoveryStrategy struct {
+// retryRecoveryStrategy implements retry-based recovery.
+type retryRecoveryStrategy struct {
 	retryer *Retryer
 }
 
-func (r *RetryRecoveryStrategy) Name() string {
+func (r *retryRecoveryStrategy) Name() string {
 	return "retry"
 }
 
-func (r *RetryRecoveryStrategy) CanRecover(err error) bool {
+func (r *retryRecoveryStrategy) CanRecover(err error) bool {
 	if r.retryer == nil {
 		return false
 	}
 	return r.retryer.GetConfig().RetryCondition(err)
 }
 
-func (r *RetryRecoveryStrategy) Recover(ctx context.Context, err error) error {
+func (r *retryRecoveryStrategy) Recover(ctx context.Context, err error) error {
 	if r.retryer == nil {
 		return errors.New("no retryer configured")
 	}
@@ -594,23 +599,23 @@ func (r *RetryRecoveryStrategy) Recover(ctx context.Context, err error) error {
 	})
 }
 
-// CircuitBreakerRecoveryStrategy implements circuit breaker recovery
-type CircuitBreakerRecoveryStrategy struct {
+// circuitBreakerRecoveryStrategy implements circuit breaker recovery.
+type circuitBreakerRecoveryStrategy struct {
 	circuitBreaker *CircuitBreaker
 }
 
-func (c *CircuitBreakerRecoveryStrategy) Name() string {
+func (c *circuitBreakerRecoveryStrategy) Name() string {
 	return "circuit_breaker"
 }
 
-func (c *CircuitBreakerRecoveryStrategy) CanRecover(err error) bool {
+func (c *circuitBreakerRecoveryStrategy) CanRecover(_ error) bool {
 	if c.circuitBreaker == nil {
 		return false
 	}
 	return c.circuitBreaker.IsReady()
 }
 
-func (c *CircuitBreakerRecoveryStrategy) Recover(ctx context.Context, err error) error {
+func (c *circuitBreakerRecoveryStrategy) Recover(ctx context.Context, _ error) error {
 	if c.circuitBreaker == nil {
 		return errors.New("no circuit breaker configured")
 	}
@@ -623,20 +628,20 @@ func (c *CircuitBreakerRecoveryStrategy) Recover(ctx context.Context, err error)
 	})
 }
 
-// FallbackRecoveryStrategy implements fallback recovery
-type FallbackRecoveryStrategy struct {
+// fallbackRecoveryStrategy implements fallback recovery.
+type fallbackRecoveryStrategy struct {
 	fallbackFunc func(context.Context, error) error
 }
 
-func (f *FallbackRecoveryStrategy) Name() string {
+func (f *fallbackRecoveryStrategy) Name() string {
 	return "fallback"
 }
 
-func (f *FallbackRecoveryStrategy) CanRecover(err error) bool {
+func (f *fallbackRecoveryStrategy) CanRecover(_ error) bool {
 	return true // Fallback can always be attempted
 }
 
-func (f *FallbackRecoveryStrategy) Recover(ctx context.Context, err error) error {
+func (f *fallbackRecoveryStrategy) Recover(ctx context.Context, err error) error {
 	if f.fallbackFunc != nil {
 		return f.fallbackFunc(ctx, err)
 	}
@@ -646,20 +651,20 @@ func (f *FallbackRecoveryStrategy) Recover(ctx context.Context, err error) error
 	return nil
 }
 
-// GracefulDegradationStrategy implements graceful degradation
-type GracefulDegradationStrategy struct {
+// gracefulDegradationStrategy implements graceful degradation.
+type gracefulDegradationStrategy struct {
 	degradationFunc func(context.Context, error) error
 }
 
-func (g *GracefulDegradationStrategy) Name() string {
+func (g *gracefulDegradationStrategy) Name() string {
 	return "graceful_degradation"
 }
 
-func (g *GracefulDegradationStrategy) CanRecover(err error) bool {
+func (g *gracefulDegradationStrategy) CanRecover(_ error) bool {
 	return true // Graceful degradation can always be attempted
 }
 
-func (g *GracefulDegradationStrategy) Recover(ctx context.Context, err error) error {
+func (g *gracefulDegradationStrategy) Recover(ctx context.Context, err error) error {
 	if g.degradationFunc != nil {
 		return g.degradationFunc(ctx, err)
 	}
@@ -669,12 +674,10 @@ func (g *GracefulDegradationStrategy) Recover(ctx context.Context, err error) er
 	return nil
 }
 
-// ResourceMonitor monitors system resources
-type ResourceMonitor struct {
-	mu sync.RWMutex
-}
+// ResourceMonitor monitors system resources.
+type ResourceMonitor struct{}
 
-// ResourceUsage contains current resource usage information
+// ResourceUsage contains current resource usage information.
 type ResourceUsage struct {
 	CPUUsage       float64
 	MemoryUsage    int64
@@ -682,25 +685,25 @@ type ResourceUsage struct {
 	Timestamp      time.Time
 }
 
-// NewResourceMonitor creates a new resource monitor
+// NewResourceMonitor creates a new resource monitor.
 func NewResourceMonitor() *ResourceMonitor {
 	return &ResourceMonitor{}
 }
 
-// GetCPUUsage returns current CPU usage (placeholder implementation)
+// GetCPUUsage returns current CPU usage (placeholder implementation).
 func (rm *ResourceMonitor) GetCPUUsage() float64 {
 	// In a real implementation, this would measure actual CPU usage
 	return 0.5
 }
 
-// GetMemoryUsage returns current memory usage
+// GetMemoryUsage returns current memory usage.
 func (rm *ResourceMonitor) GetMemoryUsage() int64 {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
-	return int64(m.Alloc)
+	return safety.SaturatingInt64(m.Alloc)
 }
 
-// GetResourceUsage returns current resource usage
+// GetResourceUsage returns current resource usage.
 func (rm *ResourceMonitor) GetResourceUsage() ResourceUsage {
 	return ResourceUsage{
 		CPUUsage:       rm.GetCPUUsage(),

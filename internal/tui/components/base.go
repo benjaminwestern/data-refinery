@@ -1,4 +1,4 @@
-// internal/tui/components/base.go
+// Package components provides reusable TUI building blocks and shared state.
 package components
 
 import (
@@ -20,7 +20,7 @@ import (
 	"github.com/benjaminwestern/data-refinery/internal/state"
 )
 
-// Styles - matching the ones from the original TUI
+// Styles - matching the ones from the original TUI.
 var (
 	primaryColor = lipgloss.Color("63")
 	errorColor   = lipgloss.Color("196")
@@ -28,9 +28,10 @@ var (
 	errorStyle   = lipgloss.NewStyle().Foreground(errorColor).Bold(true)
 )
 
-// ViewState represents the current view state
+// ViewState represents the current view state.
 type ViewState int
 
+// ViewState values describe the primary screens available in the components package.
 const (
 	ViewMenu ViewState = iota
 	ViewOptions
@@ -54,7 +55,7 @@ const (
 	ViewAdvancedOutput
 )
 
-// Component represents a UI component with state and rendering capability
+// Component represents a UI component with state and rendering capability.
 type Component interface {
 	// Update handles messages and returns updated component and commands
 	Update(msg tea.Msg) (Component, tea.Cmd)
@@ -75,51 +76,51 @@ type Component interface {
 	IsFocused() bool
 }
 
-// BaseComponent provides common functionality for all components
-type BaseComponent struct {
+// baseComponent provides common functionality for all components.
+type baseComponent struct {
 	focused bool
 	width   int
 	height  int
 }
 
-func (c *BaseComponent) Init() tea.Cmd {
+func (c *baseComponent) Init() tea.Cmd {
 	return nil
 }
 
-func (c *BaseComponent) Focus() {
+func (c *baseComponent) Focus() {
 	c.focused = true
 }
 
-func (c *BaseComponent) Blur() {
+func (c *baseComponent) Blur() {
 	c.focused = false
 }
 
-func (c *BaseComponent) IsFocused() bool {
+func (c *baseComponent) IsFocused() bool {
 	return c.focused
 }
 
-func (c *BaseComponent) SetSize(width, height int) {
+func (c *baseComponent) SetSize(width, height int) {
 	c.width = width
 	c.height = height
 }
 
-func (c *BaseComponent) Width() int {
+func (c *baseComponent) Width() int {
 	return c.width
 }
 
-func (c *BaseComponent) Height() int {
+func (c *baseComponent) Height() int {
 	return c.height
 }
 
-// SharedState contains state shared across all components
+// SharedState contains state shared across all components.
 type SharedState struct {
 	// Core application state
 	Ctx             context.Context
 	JobCtx          context.Context
 	JobCancel       context.CancelFunc
 	Analyser        *analyser.Analyser
-	StateManager    *state.StateManager
-	MemoryManager   *memory.MemoryManager
+	StateManager    *state.Manager
+	MemoryManager   *memory.Manager
 	OriginalSources []source.InputSource
 
 	// UI state
@@ -158,7 +159,7 @@ type SharedState struct {
 	PurgeStats      PurgeResultMsg
 }
 
-// PurgeResultMsg represents purge operation results
+// PurgeResultMsg represents purge operation results.
 type PurgeResultMsg struct {
 	Success        bool
 	DeletedFiles   int
@@ -167,7 +168,7 @@ type PurgeResultMsg struct {
 	BackupLocation string
 }
 
-// ComponentManager manages multiple components and their interactions
+// ComponentManager manages multiple components and their interactions.
 type ComponentManager struct {
 	components map[ViewState]Component
 	state      *SharedState
@@ -180,7 +181,7 @@ type ComponentManager struct {
 	logPathInput textinput.Model
 }
 
-// NewComponentManager creates a new component manager
+// NewComponentManager creates a new component manager.
 func NewComponentManager(state *SharedState) *ComponentManager {
 	cm := &ComponentManager{
 		components: make(map[ViewState]Component),
@@ -213,17 +214,17 @@ func NewComponentManager(state *SharedState) *ComponentManager {
 	return cm
 }
 
-// RegisterComponent registers a component for a specific view state
+// RegisterComponent registers a component for a specific view state.
 func (cm *ComponentManager) RegisterComponent(viewState ViewState, component Component) {
 	cm.components[viewState] = component
 }
 
-// GetComponent returns the component for a specific view state
+// GetComponent returns the component for a specific view state.
 func (cm *ComponentManager) GetComponent(viewState ViewState) Component {
 	return cm.components[viewState]
 }
 
-// Update handles messages and delegates to the appropriate component
+// Update handles messages and delegates to the appropriate component.
 func (cm *ComponentManager) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Handle global messages first
 	switch msg := msg.(type) {
@@ -262,7 +263,7 @@ func (cm *ComponentManager) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return cm, nil
 }
 
-// View renders the current view
+// View renders the current view.
 func (cm *ComponentManager) View() string {
 	if cm.state.Error != nil {
 		return cm.renderError()
@@ -275,7 +276,7 @@ func (cm *ComponentManager) View() string {
 	return "Unknown view state"
 }
 
-// handleQuit handles quit requests
+// handleQuit handles quit requests.
 func (cm *ComponentManager) handleQuit() (tea.Model, tea.Cmd) {
 	if cm.state.ViewState == ViewProcessing {
 		cm.state.Status = "Cancelling... generating partial report."
@@ -302,9 +303,11 @@ func (cm *ComponentManager) handleQuit() (tea.Model, tea.Cmd) {
 	return cm, tea.Quit
 }
 
-// handleEscape handles escape key presses
+// handleEscape handles escape key presses.
 func (cm *ComponentManager) handleEscape() (tea.Model, tea.Cmd) {
 	switch cm.state.ViewState {
+	case ViewMenu, ViewProcessing, ViewCancelling, ViewPurging:
+		return cm, nil
 	case ViewHelp, ViewOptions, ViewInputPath, ViewReport:
 		cm.state.ViewState = ViewMenu
 		return cm, nil
@@ -330,15 +333,16 @@ func (cm *ComponentManager) handleEscape() (tea.Model, tea.Cmd) {
 		cm.state.ViewState = ViewReport
 		return cm, nil
 	}
+
 	return cm, nil
 }
 
-// renderError renders error messages
+// renderError renders error messages.
 func (cm *ComponentManager) renderError() string {
 	return errorStyle.Render(fmt.Sprintf("Error: %v\n\nPress any key to continue...", cm.state.Error))
 }
 
-// Init initializes the component manager
+// Init initializes the component manager.
 func (cm *ComponentManager) Init() tea.Cmd {
 	return tea.Batch(
 		cm.spinner.Tick,
@@ -346,32 +350,32 @@ func (cm *ComponentManager) Init() tea.Cmd {
 	)
 }
 
-// GetSharedState returns the shared state
+// GetSharedState returns the shared state.
 func (cm *ComponentManager) GetSharedState() *SharedState {
 	return cm.state
 }
 
-// GetSpinner returns the spinner model
+// GetSpinner returns the spinner model.
 func (cm *ComponentManager) GetSpinner() spinner.Model {
 	return cm.spinner
 }
 
-// GetProgress returns the progress model
+// GetProgress returns the progress model.
 func (cm *ComponentManager) GetProgress() progress.Model {
 	return cm.progress
 }
 
-// GetPathInput returns the path input model
+// GetPathInput returns the path input model.
 func (cm *ComponentManager) GetPathInput() textinput.Model {
 	return cm.pathInput
 }
 
-// GetKeyInput returns the key input model
+// GetKeyInput returns the key input model.
 func (cm *ComponentManager) GetKeyInput() textinput.Model {
 	return cm.keyInput
 }
 
-// GetLogPathInput returns the log path input model
+// GetLogPathInput returns the log path input model.
 func (cm *ComponentManager) GetLogPathInput() textinput.Model {
 	return cm.logPathInput
 }

@@ -19,6 +19,7 @@ import (
 
 	"cloud.google.com/go/storage"
 
+	"github.com/benjaminwestern/data-refinery/internal/safety"
 	"github.com/benjaminwestern/data-refinery/internal/source"
 )
 
@@ -663,7 +664,7 @@ func newLocalTarget(src source.InputSource, backupPath string) (*localTarget, er
 		return nil, fmt.Errorf("create temp file for %s: %w", src.Path(), err)
 	}
 	if err := tempFile.Chmod(0o600); err != nil {
-		tempFile.Close()
+		safety.Close(tempFile, src.Path())
 		return nil, fmt.Errorf("set temp file permissions for %s: %w", src.Path(), err)
 	}
 
@@ -742,7 +743,7 @@ func newGCSTarget(ctx context.Context, src source.InputSource, backupPath string
 
 	generationSource, ok := src.(interface{ Generation() int64 })
 	if !ok || generationSource.Generation() == 0 {
-		client.Close()
+		safety.Close(client, src.Path())
 		return nil, fmt.Errorf("source %s is missing generation metadata required for safe GCS rewrites", src.Path())
 	}
 
@@ -853,7 +854,7 @@ func backupSource(ctx context.Context, src source.InputSource, backupRoot string
 		return fmt.Errorf("create backup file %s: %w", backupPath, err)
 	}
 	if err := file.Chmod(0o600); err != nil {
-		file.Close()
+		safety.Close(file, backupPath)
 		return fmt.Errorf("set backup file permissions for %s: %w", backupPath, err)
 	}
 	defer func() {
@@ -876,10 +877,18 @@ func buildBackupPath(root, original string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return source.BuildContainedGCSLocalPath(root, bucket, objectName)
+		path, err := source.BuildContainedGCSLocalPath(root, bucket, objectName)
+		if err != nil {
+			return "", fmt.Errorf("build contained GCS backup path: %w", err)
+		}
+		return path, nil
 	}
 
-	return source.BuildContainedLocalPath(root, original)
+	path, err := source.BuildContainedLocalPath(root, original)
+	if err != nil {
+		return "", fmt.Errorf("build contained local backup path: %w", err)
+	}
+	return path, nil
 }
 
 func parseGCSPath(gcsPath string) (string, string, error) {

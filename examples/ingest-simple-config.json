@@ -1,0 +1,11 @@
+{
+  "paths": [
+    "./ingest-simple-fixtures"
+  ],
+  "workers": 2,
+  "logPath": "../logs/ingest-simple",
+  "outputPath": "../logs/ingest-simple/unified-contacts.ndjson",
+  "mappingFile": "./ingest-simple-mappings.yaml",
+  "requireMappings": true,
+  "statsOutputPath": "../logs/ingest-simple/ingest-summary.json"
+}

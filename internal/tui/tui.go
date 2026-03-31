@@ -1,4 +1,4 @@
-// internal/tui/tui.go
+// Package tui runs the interactive terminal experience for data-refinery.
 package tui
 
 import (
@@ -26,11 +26,12 @@ import (
 	"github.com/benjaminwestern/data-refinery/internal/memory"
 	"github.com/benjaminwestern/data-refinery/internal/output"
 	"github.com/benjaminwestern/data-refinery/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/safety"
 	"github.com/benjaminwestern/data-refinery/internal/source"
 	"github.com/benjaminwestern/data-refinery/internal/state"
 )
 
-// View states - simplified and grouped logically
+// View states - simplified and grouped logically.
 const (
 	viewMenu int = iota
 	viewOptions
@@ -44,7 +45,7 @@ const (
 	viewPurgeSelection
 	viewPurging
 
-	// Advanced feature views
+	// Advanced feature views.
 	viewAdvancedMenu
 	viewSchemaConfig
 	viewSchemaResult
@@ -56,9 +57,17 @@ const (
 	viewAdvancedOutput
 )
 
-// Enhanced styling with consistent theme
+const (
+	keyDown             = "down"
+	keyEnter            = "enter"
+	menuCursorGlyph     = "▶ "
+	hashModeSelective   = "selective"
+	hashModeExcludeKeys = "exclude_keys"
+)
+
+// Enhanced styling with consistent theme.
 var (
-	// Enhanced color scheme
+	// Enhanced color scheme.
 	primaryColor   = lipgloss.Color("63")
 	secondaryColor = lipgloss.Color("212")
 	successColor   = lipgloss.Color("46")
@@ -66,7 +75,7 @@ var (
 	errorColor     = lipgloss.Color("196")
 	mutedColor     = lipgloss.Color("240")
 
-	// Core styles with improved consistency
+	// Core styles with improved consistency.
 	spinnerStyle = lipgloss.NewStyle().Foreground(primaryColor)
 	statusStyle  = lipgloss.NewStyle().MarginLeft(1).Foreground(primaryColor).Bold(true)
 
@@ -100,7 +109,7 @@ var (
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(primaryColor)
 
-	// New enhanced styles for better UX
+	// New enhanced styles for better UX.
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(primaryColor).
@@ -144,6 +153,7 @@ type (
 		savedFilenameBase string
 	}
 )
+
 type purgeResultMsg struct {
 	filesModified  int
 	recordsDeleted int
@@ -163,8 +173,8 @@ type model struct {
 	isValidationRun bool
 
 	// State management
-	stateManager  *state.StateManager
-	memoryManager *memory.MemoryManager
+	stateManager  *state.Manager
+	memoryManager *memory.Manager
 
 	viewState       int
 	quitting        bool
@@ -197,8 +207,8 @@ type model struct {
 	checkRow             bool
 	showFolderBreakdown  bool
 	outputTxt            bool
-	outputJson           bool
-	purgeIds             bool
+	outputJSON           bool
+	purgeIDs             bool
 	purgeRows            bool
 	loadedConfigPath     string
 	configImplicit       bool
@@ -253,17 +263,15 @@ func testGCSClient() bool {
 		log.Printf("GCS client pre-flight check failed: %v. GCS functionality will be disabled.", err)
 		return false
 	}
-	client.Close()
+	safety.Close(client, "GCS preflight client")
 	return true
 }
 
+// Run starts the interactive TUI and returns the final configuration and restart flags.
 func Run(cfg *config.Config) (*config.Config, bool, bool, error) {
 	cfg.GCSAvailable = testGCSClient()
 	ctx := context.Background()
-	m, err := initModel(ctx, cfg)
-	if err != nil {
-		return nil, false, false, fmt.Errorf("failed to initialise TUI model: %w", err)
-	}
+	m := initModel(ctx, cfg)
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	finalModel, err := p.Run()
@@ -279,7 +287,7 @@ func Run(cfg *config.Config) (*config.Config, bool, bool, error) {
 	return fm.buildConfig(), fm.wantsToRestart, fm.wantsToStartNew, nil
 }
 
-func initModel(ctx context.Context, cfg *config.Config) (model, error) {
+func initModel(ctx context.Context, cfg *config.Config) model {
 	pathInput := textinput.New()
 	if cfg.GCSAvailable {
 		pathInput.Placeholder = "/path/a,/path/b,gs://bucket/c"
@@ -354,8 +362,8 @@ func initModel(ctx context.Context, cfg *config.Config) (model, error) {
 		checkRow:             cfg.CheckRow,
 		showFolderBreakdown:  cfg.ShowFolderBreakdown,
 		outputTxt:            cfg.EnableTxtOutput,
-		outputJson:           cfg.EnableJsonOutput,
-		purgeIds:             cfg.PurgeIDs,
+		outputJSON:           cfg.EnableJSONOutput,
+		purgeIDs:             cfg.PurgeIDs,
 		purgeRows:            cfg.PurgeRows,
 		loadedConfigPath:     cfg.LoadedConfigPath,
 		configImplicit:       cfg.ConfigLoadedImplicitly,
@@ -387,7 +395,7 @@ func initModel(ctx context.Context, cfg *config.Config) (model, error) {
 		m.viewState = viewProcessing
 	}
 
-	return m, nil
+	return m
 }
 
 func (m model) Init() tea.Cmd {
@@ -395,9 +403,9 @@ func (m model) Init() tea.Cmd {
 		paths := strings.Split(m.path, ",")
 		for _, p := range paths {
 			if strings.HasPrefix(strings.TrimSpace(p), "gs://") && !m.gcsAvailable {
-				m.viewState = viewInputPath
-				m.err = fmt.Errorf("cannot process GCS path: GCS credentials not available")
-				return nil
+				return func() tea.Msg {
+					return errMsg{fmt.Errorf("cannot process GCS path: GCS credentials not available")}
+				}
 			}
 		}
 		return discoverAllSourcesCmd(m.ctx, paths)
@@ -416,8 +424,8 @@ func (m *model) buildConfig() *config.Config {
 		CheckRow:                    m.checkRow,
 		ShowFolderBreakdown:         m.showFolderBreakdown,
 		EnableTxtOutput:             m.outputTxt,
-		EnableJsonOutput:            m.outputJson,
-		PurgeIDs:                    m.purgeIds,
+		EnableJSONOutput:            m.outputJSON,
+		PurgeIDs:                    m.purgeIDs,
 		PurgeRows:                   m.purgeRows,
 		LoadedConfigPath:            m.loadedConfigPath,
 		ConfigLoadedImplicitly:      m.configImplicit,
@@ -456,40 +464,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if m.err != nil {
-			m.err = nil
-			m.viewState = viewMenu
-			return m, nil
-		}
-		if msg.String() == "ctrl+c" || msg.String() == "q" {
-			if m.viewState == viewProcessing {
-				m.status = "Cancelling... generating partial report."
-				m.viewState = viewCancelling
-				m.wasCancelled = true
-				if !m.startTime.IsZero() {
-					m.totalElapsedTime += time.Since(m.startTime)
-					m.startTime = time.Time{}
-				}
-				if m.jobCancel != nil {
-					m.jobCancel()
-				}
-				return m, nil
-			}
-			if m.viewState == viewCancelling || m.viewState == viewPurging {
-				return m, nil
-			}
-			m.quitting = true
-			if m.jobCancel != nil {
-				m.jobCancel()
-			}
-			// Cleanup resources
-			if m.stateManager != nil {
-				m.stateManager.Close()
-			}
-			if m.memoryManager != nil {
-				m.memoryManager.Stop()
-			}
-			return m, tea.Quit
+		if updatedModel, keyCmd, handled := handleGlobalKey(m, msg); handled {
+			return updatedModel, keyCmd
 		}
 		if msg.Type == tea.KeyEsc {
 			switch m.viewState {
@@ -596,7 +572,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, func() tea.Msg { return errMsg{err} }
 		}
 		m.analyser = analyser
-		m.jobCtx, m.jobCancel = context.WithCancel(m.ctx)
+		m.jobCtx, m.jobCancel = safety.ManagedContext(m.ctx)
 
 		if m.isValidationRun {
 			m.status = fmt.Sprintf("Found %d files. Validating key '%s'...", len(m.originalSources), m.key)
@@ -605,7 +581,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		return m, tea.Batch(
-			startAnalysisCmd(m.analyser, m.jobCtx, m.originalSources, m.buildConfig()),
+			startAnalysisCmd(m.jobCtx, m.analyser, m.originalSources, m.buildConfig()),
 			m.spinner.Tick,
 			pollProgressCmd(&m),
 		)
@@ -700,7 +676,7 @@ func (m model) View() string {
 	case viewSchemaConfig:
 		return renderSchemaConfig(&m)
 	case viewSchemaResult:
-		return renderSchemaResult(&m)
+		return renderSchemaResult()
 	case viewSearchConfig:
 		return renderSearchConfig(&m)
 	case viewSearchTargetEdit:
@@ -785,7 +761,7 @@ func validateGuardedAnalysisSafety(cfg *config.Config) (string, []string, []stri
 
 	resolvedRoot, err := config.ResolveApprovedOutputRoot(cfg.ApprovedOutputRoot)
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, nil, fmt.Errorf("resolve approved output root: %w", err)
 	}
 
 	resolvedLocalTargets := make([]string, 0, len(localTargets))
@@ -857,7 +833,7 @@ func logGuardedAnalysisSafety(cfg *config.Config, sources []source.InputSource, 
 	}
 }
 
-func startAnalysisCmd(a *analyser.Analyser, ctx context.Context, sources []source.InputSource, cfg *config.Config) tea.Cmd {
+func startAnalysisCmd(ctx context.Context, a *analyser.Analyser, sources []source.InputSource, cfg *config.Config) tea.Cmd {
 	return func() tea.Msg {
 		approvedRoot, localTargets, remoteTargets, err := validateGuardedAnalysisSafety(cfg)
 		if err != nil {
@@ -871,7 +847,7 @@ func startAnalysisCmd(a *analyser.Analyser, ctx context.Context, sources []sourc
 				return nil
 			}
 		}
-		filenameBase := report.SaveAndLog(finalReport, cfg.LogPath, cfg.EnableTxtOutput, cfg.EnableJsonOutput, cfg.CheckKey, cfg.CheckRow, cfg.ShowFolderBreakdown)
+		filenameBase := report.SaveAndLog(finalReport, cfg.LogPath, cfg.EnableTxtOutput, cfg.EnableJSONOutput, cfg.CheckKey, cfg.CheckRow, cfg.ShowFolderBreakdown)
 		if err := output.WriteAdvancedArtifacts(cfg.LogPath, cfg, finalReport); err != nil {
 			log.Printf("Failed to write advanced output files: %v", err)
 		}
@@ -880,7 +856,7 @@ func startAnalysisCmd(a *analyser.Analyser, ctx context.Context, sources []sourc
 }
 
 func pollProgressCmd(m *model) tea.Cmd {
-	return tea.Tick(time.Millisecond*100, func(t time.Time) tea.Msg {
+	return tea.Tick(time.Millisecond*100, func(_ time.Time) tea.Msg {
 		if m.analyser == nil {
 			return progressUpdateMsg{}
 		}
@@ -899,7 +875,7 @@ func performPurgeCmd(cfg *config.Config, recordsToDelete map[string]map[int]bool
 
 		// Create backup directory
 		backupDir := "deleted_records"
-		if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		if err := os.MkdirAll(backupDir, 0o700); err != nil {
 			return purgeResultMsg{err: fmt.Errorf("could not create backup dir: %w", err)}
 		}
 
@@ -928,7 +904,11 @@ func performPurgeCmd(cfg *config.Config, recordsToDelete map[string]map[int]bool
 		if err != nil {
 			return purgeResultMsg{err: fmt.Errorf("failed to create purge engine: %w", err)}
 		}
-		defer engine.Cleanup()
+		defer func() {
+			if err := engine.Cleanup(); err != nil {
+				log.Printf("interactive purge cleanup failed: %v", err)
+			}
+		}()
 
 		// Process the purge
 		result, err := engine.ProcessInteractivePurge(recordsToDelete, purgeConfig)
@@ -982,13 +962,13 @@ func updateMenu(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.menuCursor > 0 {
 				m.menuCursor--
 			}
-		case "down", "j":
+		case keyDown, "j":
 			if m.menuCursor < 5 { // Updated to match new menu count
 				m.menuCursor++
 			}
 		case "?":
 			m.viewState = viewHelp
-		case "enter":
+		case keyEnter:
 			m.analyser = nil
 			m.finalReport = nil
 			m.originalSources = nil
@@ -1028,7 +1008,7 @@ func updateOptions(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.optionsCursor > 0 {
 				m.optionsCursor--
 			}
-		case "down", "j":
+		case keyDown, "j":
 			if m.optionsCursor < 9 {
 				m.optionsCursor++
 			}
@@ -1040,7 +1020,7 @@ func updateOptions(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.optionsCursor == 0 {
 				m.workers++
 			}
-		case "enter":
+		case keyEnter:
 			switch m.optionsCursor {
 			case 1:
 				m.checkKey = !m.checkKey
@@ -1051,9 +1031,9 @@ func updateOptions(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 			case 4:
 				m.outputTxt = !m.outputTxt
 			case 5:
-				m.outputJson = !m.outputJson
+				m.outputJSON = !m.outputJSON
 			case 6:
-				m.purgeIds = !m.purgeIds
+				m.purgeIDs = !m.purgeIDs
 			case 7:
 				m.purgeRows = !m.purgeRows
 			case 8:
@@ -1172,23 +1152,23 @@ func updateReport(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.viewState = viewProcessing
 					m.wasCancelled = false
 					m.startTime = time.Now()
-					m.jobCtx, m.jobCancel = context.WithCancel(m.ctx)
+					m.jobCtx, m.jobCancel = safety.ManagedContext(m.ctx)
 					return m, tea.Batch(
-						startAnalysisCmd(m.analyser, m.jobCtx, unprocessedSources, m.buildConfig()),
+						startAnalysisCmd(m.jobCtx, m.analyser, unprocessedSources, m.buildConfig()),
 						m.spinner.Tick,
 						pollProgressCmd(&m),
 					)
 				}
 			}
 		case "p":
-			hasIdDupes := m.finalReport != nil && len(m.finalReport.DuplicateIDs) > 0
+			hasIDDupes := m.finalReport != nil && len(m.finalReport.DuplicateIDs) > 0
 			hasRowDupes := m.finalReport != nil && len(m.finalReport.DuplicateRows) > 0
 			canStartPurge := m.finalReport != nil && !m.finalReport.Summary.IsValidationReport &&
-				((m.purgeIds && hasIdDupes) || (m.purgeRows && hasRowDupes))
+				((m.purgeIDs && hasIDDupes) || (m.purgeRows && hasRowDupes))
 
 			isGCS := strings.Contains(m.path, "gs://")
 			if !isGCS && canStartPurge && m.purgeStats.filesModified == 0 {
-				if m.purgeIds && hasIdDupes {
+				if m.purgeIDs && hasIDDupes {
 					for k := range m.finalReport.DuplicateIDs {
 						m.purgeIDKeys = append(m.purgeIDKeys, k)
 					}
@@ -1223,11 +1203,11 @@ func updatePurgeSelection(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.purgeSelectionCursor > 0 {
 				m.purgeSelectionCursor--
 			}
-		case "down", "j":
+		case keyDown, "j":
 			if m.purgeSelectionCursor < len(locations)-1 {
 				m.purgeSelectionCursor++
 			}
-		case "enter":
+		case keyEnter:
 			for i, loc := range locations {
 				if i != m.purgeSelectionCursor {
 					if _, ok := m.recordsToDelete[loc.FilePath]; !ok {
@@ -1318,7 +1298,7 @@ func renderMenu(m *model) string {
 
 		if m.menuCursor == i {
 			style = menuCursorStyle
-			cursor = "▶ "
+			cursor = menuCursorGlyph
 		} else {
 			style = lipgloss.NewStyle()
 		}
@@ -1421,7 +1401,7 @@ func renderOptions(m *model) string {
 				},
 				{
 					name:        "Enable JSON Reports",
-					value:       formatBool(m.outputJson),
+					value:       formatBool(m.outputJSON),
 					description: "Generate machine-readable JSON reports",
 					index:       5,
 				},
@@ -1437,7 +1417,7 @@ func renderOptions(m *model) string {
 			}{
 				{
 					name:        "Allow ID Purging",
-					value:       formatBool(m.purgeIds),
+					value:       formatBool(m.purgeIDs),
 					description: "Enable interactive removal of duplicate IDs",
 					index:       6,
 				},
@@ -1492,7 +1472,7 @@ func renderOptions(m *model) string {
 			style := lipgloss.NewStyle()
 
 			if option.index == m.optionsCursor {
-				cursor = "▶ "
+				cursor = menuCursorGlyph
 				style = menuCursorStyle
 			}
 
@@ -1515,7 +1495,7 @@ func renderOptions(m *model) string {
 	cursor := "  "
 	style := lipgloss.NewStyle()
 	if m.optionsCursor == 9 {
-		cursor = "▶ "
+		cursor = menuCursorGlyph
 		style = menuCursorStyle
 	}
 
@@ -1701,7 +1681,7 @@ func renderInputPath(m *model) string {
 	return content.String()
 }
 
-// Helper function for path validation
+// Helper function for path validation.
 func validatePaths(paths []string, gcsAvailable bool) string {
 	var validPaths, invalidPaths, gcsWarnings []string
 
@@ -1714,17 +1694,18 @@ func validatePaths(paths []string, gcsAvailable bool) string {
 		if strings.HasPrefix(trimmed, "gs://") {
 			if gcsAvailable {
 				validPaths = append(validPaths, trimmed)
-			} else {
-				gcsWarnings = append(gcsWarnings, trimmed)
+				continue
 			}
-		} else {
-			// Basic local path validation
-			if strings.Contains(trimmed, "..") {
-				invalidPaths = append(invalidPaths, trimmed+" (contains '..')")
-			} else {
-				validPaths = append(validPaths, trimmed)
-			}
+			gcsWarnings = append(gcsWarnings, trimmed)
+			continue
 		}
+
+		if strings.Contains(trimmed, "..") {
+			invalidPaths = append(invalidPaths, trimmed+" (contains '..')")
+			continue
+		}
+
+		validPaths = append(validPaths, trimmed)
 	}
 
 	var content strings.Builder
@@ -1812,7 +1793,7 @@ func renderInputKey(m *model) string {
 	return content.String()
 }
 
-// Helper function for key validation
+// Helper function for key validation.
 func validateKeyInput(key string) string {
 	var content strings.Builder
 
@@ -1879,14 +1860,7 @@ func renderReport(m *model) string {
 	} else if m.purgeStats.err != nil {
 		b.WriteString("\n\n" + errorStyle.Render("Purge failed: "+m.purgeStats.err.Error()))
 	}
-	if !m.finalReport.Summary.IsValidationReport && (m.outputTxt || m.outputJson) {
-		var parts []string
-		if m.outputTxt {
-			parts = append(parts, ".txt")
-		}
-		if m.outputJson {
-			parts = append(parts, ".json")
-		}
+	if !m.finalReport.Summary.IsValidationReport && (m.outputTxt || m.outputJSON) {
 		b.WriteString("\n\n" + fmt.Sprintf("Reports saved to files with extension(s): %s", m.savedFilename))
 	}
 
@@ -1899,9 +1873,9 @@ func renderReport(m *model) string {
 	}
 	helpParts = append(helpParts, "(r)estart", "(n)ew job")
 
-	hasIdDupesToPurge := m.purgeIds && m.finalReport != nil && len(m.finalReport.DuplicateIDs) > 0
+	hasIDDupesToPurge := m.purgeIDs && m.finalReport != nil && len(m.finalReport.DuplicateIDs) > 0
 	hasRowDupesToPurge := m.purgeRows && m.finalReport != nil && len(m.finalReport.DuplicateRows) > 0
-	canDisplayPurge := m.finalReport != nil && !m.finalReport.Summary.IsValidationReport && (hasIdDupesToPurge || hasRowDupesToPurge)
+	canDisplayPurge := m.finalReport != nil && !m.finalReport.Summary.IsValidationReport && (hasIDDupesToPurge || hasRowDupesToPurge)
 
 	isGCS := strings.Contains(m.path, "gs://")
 	if !isGCS && canDisplayPurge && m.purgeStats.filesModified == 0 {
@@ -1928,7 +1902,7 @@ func renderPurgeSelection(m *model) string {
 		locations = m.finalReport.DuplicateRows[hash]
 		title = fmt.Sprintf("Duplicate Row (hash %s...)", hash[:8])
 	}
-	b.WriteString(fmt.Sprintf("Resolving %d of %d duplicate sets...\n", m.purgeCursor+1, totalToPurge))
+	fmt.Fprintf(&b, "Resolving %d of %d duplicate sets...\n", m.purgeCursor+1, totalToPurge)
 	b.WriteString(headerStyle.Render(title) + "\n\n")
 	b.WriteString("Select the one record to KEEP:\n")
 	for i, loc := range locations {
@@ -1936,7 +1910,7 @@ func renderPurgeSelection(m *model) string {
 		if i == m.purgeSelectionCursor {
 			cursor = selectionStyle.Render("> ")
 		}
-		b.WriteString(fmt.Sprintf("%sFile: %s\n  Line: %d\n", cursor, loc.FilePath, loc.LineNumber))
+		fmt.Fprintf(&b, "%sFile: %s\n  Line: %d\n", cursor, loc.FilePath, loc.LineNumber)
 	}
 	b.WriteString(helpStyle.Render("\nUse up/down arrows to select. Enter to confirm and move to next set."))
 	return b.String()
@@ -1952,11 +1926,11 @@ func updateAdvancedMenu(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.advancedMenuCursor > 0 {
 				m.advancedMenuCursor--
 			}
-		case "down", "j":
+		case keyDown, "j":
 			if m.advancedMenuCursor < 5 { // Updated to match new menu count
 				m.advancedMenuCursor++
 			}
-		case "enter":
+		case keyEnter:
 			switch m.advancedMenuCursor {
 			case 0: // Custom Search Patterns
 				m.viewState = viewSearchConfig
@@ -1988,11 +1962,11 @@ func updateSchemaConfig(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.schemaConfigCursor > 0 {
 				m.schemaConfigCursor--
 			}
-		case "down", "j":
+		case keyDown, "j":
 			if m.schemaConfigCursor < 3 { // Updated to match new menu count
 				m.schemaConfigCursor++
 			}
-		case "enter":
+		case keyEnter:
 			switch m.schemaConfigCursor {
 			case 0: // Toggle Schema Discovery
 				m.schemaDiscovery.Enabled = !m.schemaDiscovery.Enabled
@@ -2007,11 +1981,12 @@ func updateSchemaConfig(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.advancedEnabled = true
 			case 2: // Custom Configuration - could expand this later
 				// For now, just cycle through some common configurations
-				if m.schemaDiscovery.SamplePercent == 0.1 {
+				switch m.schemaDiscovery.SamplePercent {
+				case 0.1:
 					m.schemaDiscovery.SamplePercent = 0.05
-				} else if m.schemaDiscovery.SamplePercent == 0.05 {
+				case 0.05:
 					m.schemaDiscovery.SamplePercent = 0.2
-				} else {
+				default:
 					m.schemaDiscovery.SamplePercent = 0.1
 				}
 				m.advancedEnabled = true
@@ -2039,12 +2014,12 @@ func updateSearchConfig(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.searchConfigCursor > 0 {
 				m.searchConfigCursor--
 			}
-		case "down", "j":
+		case keyDown, "j":
 			maxCursor := len(m.searchTargets) + 1
 			if m.searchConfigCursor < maxCursor {
 				m.searchConfigCursor++
 			}
-		case "enter":
+		case keyEnter:
 			if m.searchConfigCursor == len(m.searchTargets) {
 				// Add new target
 				m.editingSearchTarget = &config.SearchTarget{
@@ -2095,13 +2070,13 @@ func updateSearchTargetEdit(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.focusSearchInput()
 				return m, textinput.Blink
 			}
-		case "down", "j":
+		case keyDown, "j":
 			if m.editingTargetCursor < 4 {
 				m.editingTargetCursor++
 				m.focusSearchInput()
 				return m, textinput.Blink
 			}
-		case "enter":
+		case keyEnter:
 			if m.editingTargetCursor == 4 {
 				// Save
 				m.editingSearchTarget.Name = m.searchNameInput.Value()
@@ -2189,14 +2164,14 @@ func updateHashingConfig(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.hashingConfigCursor > 0 {
 				m.hashingConfigCursor--
 			}
-		case "down", "j":
+		case keyDown, "j":
 			if m.hashingConfigCursor < 3 {
 				m.hashingConfigCursor++
 			}
-		case "enter":
+		case keyEnter:
 			switch m.hashingConfigCursor {
 			case 0: // Hashing mode
-				modes := []string{"full_row", "selective", "exclude_keys"}
+				modes := []string{"full_row", hashModeSelective, hashModeExcludeKeys}
 				currentIndex := 0
 				for i, mode := range modes {
 					if mode == m.hashingStrategy.Mode {
@@ -2207,13 +2182,13 @@ func updateHashingConfig(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.hashingStrategy.Mode = modes[(currentIndex+1)%len(modes)]
 				m.advancedEnabled = true
 			case 1: // Include keys (for selective mode)
-				if m.hashingStrategy.Mode == "selective" {
+				if m.hashingStrategy.Mode == hashModeSelective {
 					m.hashKeysInput.SetValue(strings.Join(m.hashingStrategy.IncludeKeys, ","))
 					m.hashKeysInput.Focus()
 					return m, textinput.Blink
 				}
 			case 2: // Exclude keys (for exclude_keys mode)
-				if m.hashingStrategy.Mode == "exclude_keys" {
+				if m.hashingStrategy.Mode == hashModeExcludeKeys {
 					m.hashKeysInput.SetValue(strings.Join(m.hashingStrategy.ExcludeKeys, ","))
 					m.hashKeysInput.Focus()
 					return m, textinput.Blink
@@ -2235,9 +2210,10 @@ func updateHashingConfig(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 			for i, k := range keys {
 				keys[i] = strings.TrimSpace(k)
 			}
-			if m.hashingStrategy.Mode == "selective" {
+			switch m.hashingStrategy.Mode {
+			case hashModeSelective:
 				m.hashingStrategy.IncludeKeys = keys
-			} else if m.hashingStrategy.Mode == "exclude_keys" {
+			case hashModeExcludeKeys:
 				m.hashingStrategy.ExcludeKeys = keys
 			}
 			m.advancedEnabled = true
@@ -2257,12 +2233,12 @@ func updateDeletionConfig(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.deletionConfigCursor > 0 {
 				m.deletionConfigCursor--
 			}
-		case "down", "j":
+		case keyDown, "j":
 			maxCursor := len(m.deletionRules) + 1
 			if m.deletionConfigCursor < maxCursor {
 				m.deletionConfigCursor++
 			}
-		case "enter":
+		case keyEnter:
 			if m.deletionConfigCursor == len(m.deletionRules) {
 				// Add new rule
 				m.editingDeletionRule = &config.DeletionRule{
@@ -2304,11 +2280,11 @@ func updateDeletionRuleEdit(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.editingRuleCursor > 0 {
 				m.editingRuleCursor--
 			}
-		case "down", "j":
+		case keyDown, "j":
 			if m.editingRuleCursor < 3 {
 				m.editingRuleCursor++
 			}
-		case "enter":
+		case keyEnter:
 			if m.editingRuleCursor == 3 {
 				// Save
 				m.editingDeletionRule.OutputPath = m.ruleOutputPathInput.Value()
@@ -2332,31 +2308,7 @@ func updateDeletionRuleEdit(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case "tab":
-			if m.editingRuleCursor == 0 {
-				// Cycle through available search targets
-				if len(m.searchTargets) > 0 {
-					currentIndex := -1
-					for i, t := range m.searchTargets {
-						if t.Name == m.editingDeletionRule.SearchTarget {
-							currentIndex = i
-							break
-						}
-					}
-					nextIndex := (currentIndex + 1) % len(m.searchTargets)
-					m.editingDeletionRule.SearchTarget = m.searchTargets[nextIndex].Name
-				}
-			} else if m.editingRuleCursor == 1 {
-				// Cycle through actions
-				actions := []string{"delete_row", "delete_matches", "mark_for_deletion"}
-				currentIndex := 0
-				for i, a := range actions {
-					if a == m.editingDeletionRule.Action {
-						currentIndex = i
-						break
-					}
-				}
-				m.editingDeletionRule.Action = actions[(currentIndex+1)%len(actions)]
-			}
+			cycleDeletionRuleField(&m)
 		}
 	}
 
@@ -2376,11 +2328,11 @@ func updateAdvancedOutput(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.outputConfigCursor > 0 {
 				m.outputConfigCursor--
 			}
-		case "down", "j":
+		case keyDown, "j":
 			if m.outputConfigCursor < 2 {
 				m.outputConfigCursor++
 			}
-		case "enter":
+		case keyEnter:
 			switch m.outputConfigCursor {
 			case 0: // Toggle advanced enabled
 				m.advancedEnabled = !m.advancedEnabled
@@ -2392,6 +2344,96 @@ func updateAdvancedOutput(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func handleGlobalKey(m model, msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+	if m.err != nil {
+		m.err = nil
+		m.viewState = viewMenu
+		return m, nil, true
+	}
+
+	if msg.String() != "ctrl+c" && msg.String() != "q" {
+		return m, nil, false
+	}
+
+	if m.viewState == viewProcessing {
+		return cancelProcessing(m), nil, true
+	}
+	if m.viewState == viewCancelling || m.viewState == viewPurging {
+		return m, nil, true
+	}
+
+	shutdownModel(&m)
+	return m, tea.Quit, true
+}
+
+func cancelProcessing(m model) model {
+	m.status = "Cancelling... generating partial report."
+	m.viewState = viewCancelling
+	m.wasCancelled = true
+	if !m.startTime.IsZero() {
+		m.totalElapsedTime += time.Since(m.startTime)
+		m.startTime = time.Time{}
+	}
+	if m.jobCancel != nil {
+		m.jobCancel()
+	}
+	return m
+}
+
+func shutdownModel(m *model) {
+	m.quitting = true
+	if m.jobCancel != nil {
+		m.jobCancel()
+	}
+	if m.stateManager != nil {
+		if err := m.stateManager.Close(); err != nil {
+			log.Printf("state manager close failed: %v", err)
+		}
+	}
+	if m.memoryManager != nil {
+		m.memoryManager.Stop()
+	}
+}
+
+func cycleDeletionRuleField(m *model) {
+	switch m.editingRuleCursor {
+	case 0:
+		cycleDeletionSearchTarget(m)
+	case 1:
+		cycleDeletionAction(m)
+	}
+}
+
+func cycleDeletionSearchTarget(m *model) {
+	if len(m.searchTargets) == 0 {
+		return
+	}
+
+	currentIndex := -1
+	for i, target := range m.searchTargets {
+		if target.Name == m.editingDeletionRule.SearchTarget {
+			currentIndex = i
+			break
+		}
+	}
+
+	nextIndex := (currentIndex + 1) % len(m.searchTargets)
+	m.editingDeletionRule.SearchTarget = m.searchTargets[nextIndex].Name
+}
+
+func cycleDeletionAction(m *model) {
+	actions := []string{"delete_row", "delete_matches", "mark_for_deletion"}
+	currentIndex := 0
+	for i, action := range actions {
+		if action == m.editingDeletionRule.Action {
+			currentIndex = i
+			break
+		}
+	}
+
+	m.editingDeletionRule.Action = actions[(currentIndex+1)%len(actions)]
 }
 
 // Render functions for advanced features
@@ -2457,7 +2499,7 @@ func renderAdvancedMenu(m *model) string {
 		cursor := "  "
 
 		if m.advancedMenuCursor == i {
-			cursor = "▶ "
+			cursor = menuCursorGlyph
 			style = menuCursorStyle
 		} else {
 			style = lipgloss.NewStyle()
@@ -2527,11 +2569,9 @@ func renderSchemaConfig(m *model) string {
 	content.WriteString(description + "\n\n")
 
 	// Simple enable/disable toggle
-	enabledText := "Disabled"
+	enabledText := warningStyle.Render("✗ Disabled")
 	if m.schemaDiscovery.Enabled {
 		enabledText = successStyle.Render("✓ Enabled")
-	} else {
-		enabledText = warningStyle.Render("✗ Disabled")
 	}
 
 	statusCard := cardStyle.Render(
@@ -2575,7 +2615,7 @@ func renderSchemaConfig(m *model) string {
 		style := lipgloss.NewStyle()
 
 		if m.schemaConfigCursor == i {
-			cursor = "▶ "
+			cursor = menuCursorGlyph
 			style = menuCursorStyle
 		}
 
@@ -2602,7 +2642,7 @@ func renderSchemaConfig(m *model) string {
 	return content.String()
 }
 
-func renderSchemaResult(m *model) string {
+func renderSchemaResult() string {
 	return headerStyle.Render("Schema Analysis Results") + "\n\n" +
 		"Schema analysis would be performed here with the current configuration.\n" +
 		helpStyle.Render("\nPress any key to return to schema configuration.")
@@ -2683,9 +2723,10 @@ func renderHashingConfig(m *model) string {
 		"Back to Advanced Menu",
 	}
 
-	if m.hashingStrategy.Mode == "selective" {
+	switch m.hashingStrategy.Mode {
+	case hashModeSelective:
 		options[1] = fmt.Sprintf("Include Keys: %s", strings.Join(m.hashingStrategy.IncludeKeys, ", "))
-	} else if m.hashingStrategy.Mode == "exclude_keys" {
+	case hashModeExcludeKeys:
 		options[2] = fmt.Sprintf("Exclude Keys: %s", strings.Join(m.hashingStrategy.ExcludeKeys, ", "))
 	}
 

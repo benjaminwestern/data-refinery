@@ -358,7 +358,7 @@ func TestSaveJSONReport(t *testing.T) {
 		t.Fatalf("Failed to read JSON file: %v", err)
 	}
 
-	var savedReport SchemaReport
+	var savedReport Report
 	if err := json.Unmarshal(data, &savedReport); err != nil {
 		t.Fatalf("Failed to unmarshal JSON: %v", err)
 	}

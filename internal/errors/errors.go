@@ -1,4 +1,4 @@
-// internal/errors/errors.go
+// Package errors centralises structured error collection and recovery metadata.
 package errors
 
 import (
@@ -14,9 +14,10 @@ import (
 	"github.com/benjaminwestern/data-refinery/internal/report"
 )
 
-// ErrorType represents different types of errors
+// ErrorType represents different types of errors.
 type ErrorType string
 
+// ErrorType values classify collected processing failures.
 const (
 	ErrorTypeJSONParsing     ErrorType = "json_parsing"
 	ErrorTypeFileAccess      ErrorType = "file_access"
@@ -30,9 +31,10 @@ const (
 	ErrorTypeUnknown         ErrorType = "unknown"
 )
 
-// Severity represents error severity levels
+// Severity represents error severity levels.
 type Severity string
 
+// Severity values describe the impact level of a collected error.
 const (
 	SeverityInfo     Severity = "info"
 	SeverityWarning  Severity = "warning"
@@ -40,7 +42,7 @@ const (
 	SeverityCritical Severity = "critical"
 )
 
-// ErrorEntry represents a single error occurrence
+// ErrorEntry represents a single error occurrence.
 type ErrorEntry struct {
 	ID          string               `json:"id"`
 	Type        ErrorType            `json:"type"`
@@ -54,19 +56,20 @@ type ErrorEntry struct {
 	Count       int                  `json:"count"`
 }
 
-// RecoveryCallback is a function that attempts to recover from an error
+// RecoveryCallback is a function that attempts to recover from an error.
 type RecoveryCallback func(ctx context.Context, err error) error
 
-// CircuitBreakerState represents the state of a circuit breaker
+// CircuitBreakerState represents the state of a circuit breaker.
 type CircuitBreakerState string
 
+// CircuitBreakerState values describe the collector circuit-breaker lifecycle.
 const (
 	CircuitBreakerClosed   CircuitBreakerState = "closed"
 	CircuitBreakerOpen     CircuitBreakerState = "open"
 	CircuitBreakerHalfOpen CircuitBreakerState = "half-open"
 )
 
-// ErrorCollector collects and manages errors during processing
+// ErrorCollector collects and manages errors during processing.
 type ErrorCollector struct {
 	errors           []ErrorEntry
 	errorsByType     map[ErrorType][]ErrorEntry
@@ -95,7 +98,7 @@ type ErrorCollector struct {
 	logErrors            bool
 }
 
-// NewErrorCollector creates a new error collector
+// NewErrorCollector creates a new error collector.
 func NewErrorCollector(maxErrors int) *ErrorCollector {
 	return &ErrorCollector{
 		errors:                make([]ErrorEntry, 0),
@@ -111,7 +114,7 @@ func NewErrorCollector(maxErrors int) *ErrorCollector {
 	}
 }
 
-// RegisterRecoveryCallback registers a recovery callback for a specific error type
+// RegisterRecoveryCallback registers a recovery callback for a specific error type.
 func (ec *ErrorCollector) RegisterRecoveryCallback(errorType ErrorType, callback RecoveryCallback) {
 	ec.mutex.Lock()
 	defer ec.mutex.Unlock()
@@ -122,14 +125,14 @@ func (ec *ErrorCollector) RegisterRecoveryCallback(errorType ErrorType, callback
 	ec.recoveryCallbacks[errorType] = append(ec.recoveryCallbacks[errorType], callback)
 }
 
-// SetCircuitBreakerTimeout sets the circuit breaker timeout duration
+// SetCircuitBreakerTimeout sets the circuit breaker timeout duration.
 func (ec *ErrorCollector) SetCircuitBreakerTimeout(timeout time.Duration) {
 	ec.mutex.Lock()
 	defer ec.mutex.Unlock()
 	ec.circuitBreakerTimeout = timeout
 }
 
-// EnableFeatures enables or disables various error handling features
+// EnableFeatures enables or disables various error handling features.
 func (ec *ErrorCollector) EnableFeatures(recovery, circuitBreaker, logging bool) {
 	ec.mutex.Lock()
 	defer ec.mutex.Unlock()
@@ -138,7 +141,7 @@ func (ec *ErrorCollector) EnableFeatures(recovery, circuitBreaker, logging bool)
 	ec.logErrors = logging
 }
 
-// isCircuitBreakerOpen checks if the circuit breaker is open
+// isCircuitBreakerOpen checks if the circuit breaker is open.
 func (ec *ErrorCollector) isCircuitBreakerOpen() bool {
 	if ec.circuitBreakerState == CircuitBreakerOpen {
 		if time.Since(ec.lastFailureTime) > ec.circuitBreakerTimeout {
@@ -151,7 +154,7 @@ func (ec *ErrorCollector) isCircuitBreakerOpen() bool {
 	return false
 }
 
-// attemptRecovery attempts to recover from an error using registered callbacks
+// attemptRecovery attempts to recover from an error using registered callbacks.
 func (ec *ErrorCollector) attemptRecovery(ctx context.Context, errorType ErrorType, err error) bool {
 	callbacks := ec.recoveryCallbacks[errorType]
 
@@ -163,15 +166,17 @@ func (ec *ErrorCollector) attemptRecovery(ctx context.Context, errorType ErrorTy
 	return false
 }
 
-// updateCircuitBreaker updates the circuit breaker state based on error severity
+// updateCircuitBreaker updates the circuit breaker state based on error severity.
 func (ec *ErrorCollector) updateCircuitBreaker(severity Severity) {
 	switch severity {
+	case SeverityInfo:
+		return
 	case SeverityCritical:
 		ec.circuitBreakerErrors += 3
 	case SeverityError:
 		ec.circuitBreakerErrors += 2
 	case SeverityWarning:
-		ec.circuitBreakerErrors += 1
+		ec.circuitBreakerErrors++
 	}
 
 	if ec.circuitBreakerErrors >= 10 {
@@ -180,7 +185,7 @@ func (ec *ErrorCollector) updateCircuitBreaker(severity Severity) {
 	}
 }
 
-// ResetCircuitBreaker resets the circuit breaker to closed state
+// ResetCircuitBreaker resets the circuit breaker to closed state.
 func (ec *ErrorCollector) ResetCircuitBreaker() {
 	ec.mutex.Lock()
 	defer ec.mutex.Unlock()
@@ -188,14 +193,14 @@ func (ec *ErrorCollector) ResetCircuitBreaker() {
 	ec.circuitBreakerErrors = 0
 }
 
-// GetCircuitBreakerState returns the current circuit breaker state
+// GetCircuitBreakerState returns the current circuit breaker state.
 func (ec *ErrorCollector) GetCircuitBreakerState() CircuitBreakerState {
 	ec.mutex.RLock()
 	defer ec.mutex.RUnlock()
 	return ec.circuitBreakerState
 }
 
-// GetStatistics returns error handling statistics
+// GetStatistics returns error handling statistics.
 func (ec *ErrorCollector) GetStatistics() map[string]any {
 	ec.mutex.RLock()
 	defer ec.mutex.RUnlock()
@@ -211,7 +216,7 @@ func (ec *ErrorCollector) GetStatistics() map[string]any {
 	}
 }
 
-// AddError adds an error to the collector
+// AddError adds an error to the collector.
 func (ec *ErrorCollector) AddError(errorType ErrorType, severity Severity, message string, details string, location *report.LocationInfo, ctx map[string]any) string {
 	ec.mutex.Lock()
 	defer ec.mutex.Unlock()
@@ -276,6 +281,8 @@ func (ec *ErrorCollector) AddError(errorType ErrorType, severity Severity, messa
 
 	// Update counters
 	switch severity {
+	case SeverityInfo:
+		// Informational events are tracked but do not affect severity counters.
 	case SeverityWarning:
 		ec.warningCount++
 	case SeverityError:
@@ -297,7 +304,7 @@ func (ec *ErrorCollector) AddError(errorType ErrorType, severity Severity, messa
 	return id
 }
 
-// AddJSONParsingError adds a JSON parsing error
+// AddJSONParsingError adds a JSON parsing error.
 func (ec *ErrorCollector) AddJSONParsingError(message string, location *report.LocationInfo, jsonContent string) string {
 	context := map[string]any{
 		"json_content": jsonContent,
@@ -305,7 +312,7 @@ func (ec *ErrorCollector) AddJSONParsingError(message string, location *report.L
 	return ec.AddError(ErrorTypeJSONParsing, SeverityWarning, message, "", location, context)
 }
 
-// AddFileAccessError adds a file access error
+// AddFileAccessError adds a file access error.
 func (ec *ErrorCollector) AddFileAccessError(message string, filePath string, err error) string {
 	context := map[string]any{
 		"file_path": filePath,
@@ -315,12 +322,12 @@ func (ec *ErrorCollector) AddFileAccessError(message string, filePath string, er
 	return ec.AddError(ErrorTypeFileAccess, SeverityError, message, err.Error(), location, context)
 }
 
-// AddValidationError adds a validation error
+// AddValidationError adds a validation error.
 func (ec *ErrorCollector) AddValidationError(message string, details string, context map[string]any) string {
 	return ec.AddError(ErrorTypeValidation, SeverityError, message, details, nil, context)
 }
 
-// AddProcessingError adds a processing error
+// AddProcessingError adds a processing error.
 func (ec *ErrorCollector) AddProcessingError(message string, location *report.LocationInfo, err error) string {
 	context := map[string]any{
 		"error": err.Error(),
@@ -328,12 +335,12 @@ func (ec *ErrorCollector) AddProcessingError(message string, location *report.Lo
 	return ec.AddError(ErrorTypeProcessing, SeverityError, message, err.Error(), location, context)
 }
 
-// AddMemoryLimitError adds a memory limit error
+// AddMemoryLimitError adds a memory limit error.
 func (ec *ErrorCollector) AddMemoryLimitError(message string, details string) string {
 	return ec.AddError(ErrorTypeMemoryLimit, SeverityCritical, message, details, nil, nil)
 }
 
-// GetErrors returns all errors
+// GetErrors returns all errors.
 func (ec *ErrorCollector) GetErrors() []ErrorEntry {
 	ec.mutex.RLock()
 	defer ec.mutex.RUnlock()
@@ -343,7 +350,7 @@ func (ec *ErrorCollector) GetErrors() []ErrorEntry {
 	return errors
 }
 
-// GetErrorsByType returns errors of a specific type
+// GetErrorsByType returns errors of a specific type.
 func (ec *ErrorCollector) GetErrorsByType(errorType ErrorType) []ErrorEntry {
 	ec.mutex.RLock()
 	defer ec.mutex.RUnlock()
@@ -356,7 +363,7 @@ func (ec *ErrorCollector) GetErrorsByType(errorType ErrorType) []ErrorEntry {
 	return []ErrorEntry{}
 }
 
-// GetErrorsByLocation returns errors for a specific location
+// GetErrorsByLocation returns errors for a specific location.
 func (ec *ErrorCollector) GetErrorsByLocation(filePath string, lineNumber int) []ErrorEntry {
 	ec.mutex.RLock()
 	defer ec.mutex.RUnlock()
@@ -370,14 +377,14 @@ func (ec *ErrorCollector) GetErrorsByLocation(filePath string, lineNumber int) [
 	return []ErrorEntry{}
 }
 
-// GetErrorCount returns the total number of errors
+// GetErrorCount returns the total number of errors.
 func (ec *ErrorCollector) GetErrorCount() int {
 	ec.mutex.RLock()
 	defer ec.mutex.RUnlock()
 	return len(ec.errors)
 }
 
-// GetCountsBySeverity returns error counts by severity
+// GetCountsBySeverity returns error counts by severity.
 func (ec *ErrorCollector) GetCountsBySeverity() map[Severity]int {
 	ec.mutex.RLock()
 	defer ec.mutex.RUnlock()
@@ -389,7 +396,7 @@ func (ec *ErrorCollector) GetCountsBySeverity() map[Severity]int {
 	}
 }
 
-// GetCountsByType returns error counts by type
+// GetCountsByType returns error counts by type.
 func (ec *ErrorCollector) GetCountsByType() map[ErrorType]int {
 	ec.mutex.RLock()
 	defer ec.mutex.RUnlock()
@@ -401,14 +408,14 @@ func (ec *ErrorCollector) GetCountsByType() map[ErrorType]int {
 	return counts
 }
 
-// HasCriticalErrors checks if there are any critical errors
+// HasCriticalErrors checks if there are any critical errors.
 func (ec *ErrorCollector) HasCriticalErrors() bool {
 	ec.mutex.RLock()
 	defer ec.mutex.RUnlock()
 	return ec.criticalCount > 0
 }
 
-// ShouldAbort determines if processing should be aborted based on error conditions
+// ShouldAbort determines if processing should be aborted based on error conditions.
 func (ec *ErrorCollector) ShouldAbort() bool {
 	ec.mutex.RLock()
 	defer ec.mutex.RUnlock()
@@ -426,7 +433,7 @@ func (ec *ErrorCollector) ShouldAbort() bool {
 	return false
 }
 
-// GenerateReport generates a comprehensive error report
+// GenerateReport generates a comprehensive error report.
 func (ec *ErrorCollector) GenerateReport() ErrorReport {
 	ec.mutex.RLock()
 	defer ec.mutex.RUnlock()
@@ -443,7 +450,7 @@ func (ec *ErrorCollector) GenerateReport() ErrorReport {
 	}
 }
 
-// ErrorReport represents a comprehensive error report
+// ErrorReport represents a comprehensive error report.
 type ErrorReport struct {
 	TotalErrors      int                `json:"totalErrors"`
 	CountsBySeverity map[Severity]int   `json:"countsBySeverity"`
@@ -455,7 +462,7 @@ type ErrorReport struct {
 	Recommendations  []string           `json:"recommendations"`
 }
 
-// ErrorTypeSummary represents a summary of errors by type
+// ErrorTypeSummary represents a summary of errors by type.
 type ErrorTypeSummary struct {
 	Type        ErrorType `json:"type"`
 	Count       int       `json:"count"`
@@ -464,7 +471,7 @@ type ErrorTypeSummary struct {
 	Recoverable bool      `json:"recoverable"`
 }
 
-// Clear clears all collected errors
+// Clear clears all collected errors.
 func (ec *ErrorCollector) Clear() {
 	ec.mutex.Lock()
 	defer ec.mutex.Unlock()
@@ -477,7 +484,7 @@ func (ec *ErrorCollector) Clear() {
 	ec.criticalCount = 0
 }
 
-// findDuplicateError finds if an error already exists
+// findDuplicateError finds if an error already exists.
 func (ec *ErrorCollector) findDuplicateError(entry ErrorEntry) *ErrorEntry {
 	for i := range ec.errors {
 		existing := &ec.errors[i]
@@ -490,7 +497,7 @@ func (ec *ErrorCollector) findDuplicateError(entry ErrorEntry) *ErrorEntry {
 	return nil
 }
 
-// locationsEqual compares two locations for equality
+// locationsEqual compares two locations for equality.
 func (ec *ErrorCollector) locationsEqual(loc1, loc2 *report.LocationInfo) bool {
 	if loc1 == nil && loc2 == nil {
 		return true
@@ -501,7 +508,7 @@ func (ec *ErrorCollector) locationsEqual(loc1, loc2 *report.LocationInfo) bool {
 	return loc1.FilePath == loc2.FilePath && loc1.LineNumber == loc2.LineNumber
 }
 
-// removeOldestError removes the oldest error from the collection
+// removeOldestError removes the oldest error from the collection.
 func (ec *ErrorCollector) removeOldestError() {
 	if len(ec.errors) == 0 {
 		return
@@ -536,6 +543,8 @@ func (ec *ErrorCollector) removeOldestError() {
 
 	// Update counters
 	switch oldestError.Severity {
+	case SeverityInfo:
+		// Informational events are tracked but do not affect severity counters.
 	case SeverityWarning:
 		ec.warningCount--
 	case SeverityError:
@@ -545,7 +554,7 @@ func (ec *ErrorCollector) removeOldestError() {
 	}
 }
 
-// isRecoverable determines if an error is recoverable
+// isRecoverable determines if an error is recoverable.
 func (ec *ErrorCollector) isRecoverable(errorType ErrorType, severity Severity) bool {
 	if severity == SeverityCritical {
 		return false
@@ -558,12 +567,14 @@ func (ec *ErrorCollector) isRecoverable(errorType ErrorType, severity Severity) 
 		return severity != SeverityError
 	case ErrorTypeMemoryLimit, ErrorTypeTimeout:
 		return false
+	case ErrorTypeProcessing, ErrorTypeStateManagement, ErrorTypeConfiguration, ErrorTypeUnknown:
+		return severity == SeverityWarning
 	default:
 		return severity == SeverityWarning
 	}
 }
 
-// getTopErrorTypes returns the most frequent error types
+// getTopErrorTypes returns the most frequent error types.
 func (ec *ErrorCollector) getTopErrorTypes() []ErrorTypeSummary {
 	typeCounts := make(map[ErrorType]int)
 	typeMostCommon := make(map[ErrorType]string)
@@ -575,7 +586,7 @@ func (ec *ErrorCollector) getTopErrorTypes() []ErrorTypeSummary {
 		}
 	}
 
-	var summaries []ErrorTypeSummary
+	summaries := make([]ErrorTypeSummary, 0, len(typeCounts))
 	total := len(ec.errors)
 
 	for errorType, count := range typeCounts {
@@ -592,7 +603,7 @@ func (ec *ErrorCollector) getTopErrorTypes() []ErrorTypeSummary {
 	return summaries
 }
 
-// generateErrorSummary generates a human-readable error summary
+// generateErrorSummary generates a human-readable error summary.
 func (ec *ErrorCollector) generateErrorSummary() string {
 	total := len(ec.errors)
 	if total == 0 {
@@ -615,7 +626,7 @@ func (ec *ErrorCollector) generateErrorSummary() string {
 	return strings.Join(parts, ", ")
 }
 
-// generateRecommendations generates recommendations based on error patterns
+// generateRecommendations generates recommendations based on error patterns.
 func (ec *ErrorCollector) generateRecommendations() []string {
 	var recommendations []string
 
@@ -648,24 +659,24 @@ func (ec *ErrorCollector) generateRecommendations() []string {
 	return recommendations
 }
 
-// ErrorHandler provides utility functions for error handling
+// ErrorHandler provides utility functions for error handling.
 type ErrorHandler struct {
 	collector *ErrorCollector
 }
 
-// NewErrorHandler creates a new error handler
+// NewErrorHandler creates a new error handler.
 func NewErrorHandler(maxErrors int) *ErrorHandler {
 	return &ErrorHandler{
 		collector: NewErrorCollector(maxErrors),
 	}
 }
 
-// GetCollector returns the error collector
+// GetCollector returns the error collector.
 func (eh *ErrorHandler) GetCollector() *ErrorCollector {
 	return eh.collector
 }
 
-// HandleJSONError handles JSON parsing errors with recovery
+// HandleJSONError handles JSON parsing errors with recovery.
 func (eh *ErrorHandler) HandleJSONError(content []byte, location *report.LocationInfo, err error) (recovered bool, data map[string]any) {
 	eh.collector.AddJSONParsingError(err.Error(), location, string(content))
 
@@ -673,7 +684,7 @@ func (eh *ErrorHandler) HandleJSONError(content []byte, location *report.Locatio
 	return eh.attemptJSONRecovery(content)
 }
 
-// attemptJSONRecovery attempts to recover from JSON parsing errors
+// attemptJSONRecovery attempts to recover from JSON parsing errors.
 func (eh *ErrorHandler) attemptJSONRecovery(content []byte) (bool, map[string]any) {
 	contentStr := string(content)
 
@@ -698,26 +709,26 @@ func (eh *ErrorHandler) attemptJSONRecovery(content []byte) (bool, map[string]an
 	return false, nil
 }
 
-// fixTrailingComma removes trailing commas from JSON
+// fixTrailingComma removes trailing commas from JSON.
 func (eh *ErrorHandler) fixTrailingComma(content string) string {
 	content = strings.ReplaceAll(content, ",}", "}")
 	content = strings.ReplaceAll(content, ",]", "]")
 	return content
 }
 
-// fixUnquotedKeys adds quotes to unquoted keys
+// fixUnquotedKeys adds quotes to unquoted keys.
 func (eh *ErrorHandler) fixUnquotedKeys(content string) string {
 	// This is a simplified implementation
 	// In production, you'd want a more robust parser
 	return content
 }
 
-// fixSingleQuotes converts single quotes to double quotes
+// fixSingleQuotes converts single quotes to double quotes.
 func (eh *ErrorHandler) fixSingleQuotes(content string) string {
 	return strings.ReplaceAll(content, "'", "\"")
 }
 
-// fixMissingQuotes adds missing quotes around string values
+// fixMissingQuotes adds missing quotes around string values.
 func (eh *ErrorHandler) fixMissingQuotes(content string) string {
 	// This is a simplified implementation
 	// In production, you'd want a more robust parser

@@ -1,0 +1,40 @@
+files:
+  - match:
+      name: contacts.csv
+      format: csv
+    columns:
+      customer_id: Id
+      first_name: FirstName
+      last_name: LastName
+      email: Email
+      mobile: Mobile
+      postcode: PostCode
+    attributes:
+      status: SubscriptionStatus
+    dataSource: csv-upload
+  - match:
+      name: contacts.tsv
+      format: tsv
+    columns:
+      customer_id: Id
+      first_name: FirstName
+      last_name: LastName
+      email: Email
+      mobile: Mobile
+      postcode: PostCode
+    attributes:
+      status: SubscriptionStatus
+    dataSource: tsv-upload
+  - match:
+      name: contacts.json
+      format: json
+    columns:
+      identifier: Id
+      first_name: FirstName
+      last_name: LastName
+      email: Email
+      mobile: Mobile
+      postcode: PostCode
+      source: DataSource
+    attributes:
+      status: SubscriptionStatus

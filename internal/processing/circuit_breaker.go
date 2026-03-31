@@ -3,40 +3,42 @@ package processing
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
+
+	"github.com/benjaminwestern/data-refinery/internal/safety"
 )
 
 var (
-	ErrCircuitBreakerOpen    = errors.New("circuit breaker is open")
-	ErrCircuitBreakerTimeout = errors.New("circuit breaker operation timed out")
-	ErrTooManyRequests       = errors.New("too many requests")
-	ErrHalfOpenLimitExceeded = errors.New("half-open state limit exceeded")
+	errCircuitBreakerOpen    = errors.New("circuit breaker is open")
+	errTooManyRequests       = errors.New("too many requests")
+	errHalfOpenLimitExceeded = errors.New("half-open state limit exceeded")
 )
 
-// CircuitBreakerState represents the state of the circuit breaker
+// CircuitBreakerState represents the state of the circuit breaker.
 type CircuitBreakerState int
 
 const (
-	StateClosed CircuitBreakerState = iota
-	StateOpen
-	StateHalfOpen
+	stateClosed CircuitBreakerState = iota
+	stateOpen
+	stateHalfOpen
 )
 
 func (s CircuitBreakerState) String() string {
 	switch s {
-	case StateClosed:
+	case stateClosed:
 		return "CLOSED"
-	case StateOpen:
+	case stateOpen:
 		return "OPEN"
-	case StateHalfOpen:
+	case stateHalfOpen:
 		return "HALF_OPEN"
 	default:
-		return "UNKNOWN"
+		return unknownLabel
 	}
 }
 
-// CircuitBreakerConfig holds configuration for the circuit breaker
+// CircuitBreakerConfig holds configuration for the circuit breaker.
 type CircuitBreakerConfig struct {
 	MaxRequests           uint32        // Maximum requests allowed when half-open
 	Interval              time.Duration // Statistical window for closed state
@@ -50,28 +52,28 @@ type CircuitBreakerConfig struct {
 	SlowCallRateThreshold float64       // Threshold for slow call rate
 }
 
-// DefaultCircuitBreakerConfig returns a default configuration
+// DefaultCircuitBreakerConfig returns a default configuration.
 func DefaultCircuitBreakerConfig() CircuitBreakerConfig {
 	return CircuitBreakerConfig{
 		MaxRequests:           10,
 		Interval:              60 * time.Second,
 		Timeout:               30 * time.Second,
 		ReadyToTrip:           DefaultReadyToTrip,
-		OnStateChange:         func(name string, from, to CircuitBreakerState) {},
+		OnStateChange:         func(_ string, _, _ CircuitBreakerState) {},
 		IsSuccessful:          func(err error) bool { return err == nil },
-		FallbackFunc:          func(ctx context.Context, err error) error { return err },
+		FallbackFunc:          func(_ context.Context, err error) error { return err },
 		MaxConcurrent:         100,
 		SlowCallDuration:      10 * time.Second,
 		SlowCallRateThreshold: 0.5,
 	}
 }
 
-// DefaultReadyToTrip is the default function to determine if the circuit should trip
+// DefaultReadyToTrip is the default function to determine if the circuit should trip.
 func DefaultReadyToTrip(counts Counts) bool {
 	return counts.Requests >= 5 && counts.FailureRatio() >= 0.6
 }
 
-// Counts holds the statistics for the circuit breaker
+// Counts holds the statistics for the circuit breaker.
 type Counts struct {
 	Requests             uint32
 	TotalSuccesses       uint32
@@ -81,7 +83,7 @@ type Counts struct {
 	SlowCalls            uint32
 }
 
-// SuccessRatio returns the success ratio
+// SuccessRatio returns the success ratio.
 func (c Counts) SuccessRatio() float64 {
 	if c.Requests == 0 {
 		return 0.0
@@ -89,7 +91,7 @@ func (c Counts) SuccessRatio() float64 {
 	return float64(c.TotalSuccesses) / float64(c.Requests)
 }
 
-// FailureRatio returns the failure ratio
+// FailureRatio returns the failure ratio.
 func (c Counts) FailureRatio() float64 {
 	if c.Requests == 0 {
 		return 0.0
@@ -97,7 +99,7 @@ func (c Counts) FailureRatio() float64 {
 	return float64(c.TotalFailures) / float64(c.Requests)
 }
 
-// SlowCallRatio returns the slow call ratio
+// SlowCallRatio returns the slow call ratio.
 func (c Counts) SlowCallRatio() float64 {
 	if c.Requests == 0 {
 		return 0.0
@@ -105,7 +107,7 @@ func (c Counts) SlowCallRatio() float64 {
 	return float64(c.SlowCalls) / float64(c.Requests)
 }
 
-// Reset resets the counts
+// Reset resets the counts.
 func (c *Counts) Reset() {
 	c.Requests = 0
 	c.TotalSuccesses = 0
@@ -115,7 +117,7 @@ func (c *Counts) Reset() {
 	c.SlowCalls = 0
 }
 
-// CircuitBreaker represents a circuit breaker
+// CircuitBreaker represents a circuit breaker.
 type CircuitBreaker struct {
 	name       string
 	config     CircuitBreakerConfig
@@ -139,28 +141,28 @@ type CircuitBreaker struct {
 	totalSlowCalls   uint64
 }
 
-// NewCircuitBreaker creates a new circuit breaker
+// NewCircuitBreaker creates a new circuit breaker.
 func NewCircuitBreaker(name string, config CircuitBreakerConfig) *CircuitBreaker {
 	cb := &CircuitBreaker{
 		name:             name,
 		config:           config,
-		state:            StateClosed,
+		state:            stateClosed,
 		generation:       0,
 		expiry:           time.Now().Add(config.Interval),
-		maxConcurrent:    int32(config.MaxConcurrent),
+		maxConcurrent:    safety.SaturatingInt32(config.MaxConcurrent),
 		stateTransitions: make(map[CircuitBreakerState]uint64),
 		lastStateChange:  time.Now(),
 	}
 
 	// Initialize state transition counters
-	cb.stateTransitions[StateClosed] = 0
-	cb.stateTransitions[StateOpen] = 0
-	cb.stateTransitions[StateHalfOpen] = 0
+	cb.stateTransitions[stateClosed] = 0
+	cb.stateTransitions[stateOpen] = 0
+	cb.stateTransitions[stateHalfOpen] = 0
 
 	return cb
 }
 
-// Execute executes the given function if the circuit breaker allows it
+// Execute executes the given function if the circuit breaker allows it.
 func (cb *CircuitBreaker) Execute(ctx context.Context, fn func() error) error {
 	// Check if we can execute
 	generation, err := cb.beforeRequest()
@@ -193,11 +195,11 @@ func (cb *CircuitBreaker) Execute(ctx context.Context, fn func() error) error {
 	case <-ctx.Done():
 		// Context cancelled
 		cb.afterRequest(generation, false, time.Since(startTime))
-		return ctx.Err()
+		return fmt.Errorf("circuit breaker execution cancelled: %w", ctx.Err())
 	}
 }
 
-// beforeRequest checks if a request can be executed
+// beforeRequest checks if a request can be executed.
 func (cb *CircuitBreaker) beforeRequest() (uint64, error) {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
@@ -207,18 +209,18 @@ func (cb *CircuitBreaker) beforeRequest() (uint64, error) {
 
 	// Check concurrency limit
 	if cb.activeRequests >= cb.maxConcurrent {
-		return generation, ErrTooManyRequests
+		return generation, errTooManyRequests
 	}
 
 	switch state {
-	case StateClosed:
+	case stateClosed:
 		cb.activeRequests++
 		return generation, nil
-	case StateOpen:
-		return generation, ErrCircuitBreakerOpen
-	case StateHalfOpen:
+	case stateOpen:
+		return generation, errCircuitBreakerOpen
+	case stateHalfOpen:
 		if cb.counts.Requests >= cb.config.MaxRequests {
-			return generation, ErrHalfOpenLimitExceeded
+			return generation, errHalfOpenLimitExceeded
 		}
 		cb.activeRequests++
 		return generation, nil
@@ -227,7 +229,7 @@ func (cb *CircuitBreaker) beforeRequest() (uint64, error) {
 	}
 }
 
-// afterRequest updates the circuit breaker state after a request
+// afterRequest updates the circuit breaker state after a request.
 func (cb *CircuitBreaker) afterRequest(generation uint64, success bool, duration time.Duration) {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
@@ -266,20 +268,22 @@ func (cb *CircuitBreaker) afterRequest(generation uint64, success bool, duration
 
 	// Update state based on current state and results
 	switch cb.state {
-	case StateClosed:
+	case stateClosed:
 		if cb.config.ReadyToTrip(cb.counts) || cb.shouldTripOnSlowCalls() {
-			cb.setState(StateOpen, time.Now())
+			cb.setState(stateOpen, time.Now())
 		}
-	case StateHalfOpen:
+	case stateOpen:
+		// Transitions out of open state are handled when the timeout expires.
+	case stateHalfOpen:
 		if success {
-			cb.setState(StateClosed, time.Now())
+			cb.setState(stateClosed, time.Now())
 		} else {
-			cb.setState(StateOpen, time.Now())
+			cb.setState(stateOpen, time.Now())
 		}
 	}
 }
 
-// shouldTripOnSlowCalls checks if the circuit should trip based on slow call rate
+// shouldTripOnSlowCalls checks if the circuit should trip based on slow call rate.
 func (cb *CircuitBreaker) shouldTripOnSlowCalls() bool {
 	if cb.config.SlowCallRateThreshold <= 0 {
 		return false
@@ -292,22 +296,24 @@ func (cb *CircuitBreaker) shouldTripOnSlowCalls() bool {
 	return cb.counts.SlowCallRatio() >= cb.config.SlowCallRateThreshold
 }
 
-// currentState returns the current state and generation
+// currentState returns the current state and generation.
 func (cb *CircuitBreaker) currentState(now time.Time) (CircuitBreakerState, uint64) {
 	switch cb.state {
-	case StateClosed:
+	case stateClosed:
 		if cb.expiry.Before(now) {
 			cb.toNewGeneration(now)
 		}
-	case StateOpen:
+	case stateOpen:
 		if cb.expiry.Before(now) {
-			cb.setState(StateHalfOpen, now)
+			cb.setState(stateHalfOpen, now)
 		}
+	case stateHalfOpen:
+		// Half-open state progresses based on request outcomes.
 	}
 	return cb.state, cb.generation
 }
 
-// setState changes the state of the circuit breaker
+// setState changes the state of the circuit breaker.
 func (cb *CircuitBreaker) setState(state CircuitBreakerState, now time.Time) {
 	if cb.state == state {
 		return
@@ -325,27 +331,27 @@ func (cb *CircuitBreaker) setState(state CircuitBreakerState, now time.Time) {
 	}
 }
 
-// toNewGeneration creates a new generation
+// toNewGeneration creates a new generation.
 func (cb *CircuitBreaker) toNewGeneration(now time.Time) {
 	cb.generation++
 	cb.counts.Reset()
 
 	var zero time.Time
 	switch cb.state {
-	case StateClosed:
+	case stateClosed:
 		if cb.config.Interval == 0 {
 			cb.expiry = zero
 		} else {
 			cb.expiry = now.Add(cb.config.Interval)
 		}
-	case StateOpen:
+	case stateOpen:
 		cb.expiry = now.Add(cb.config.Timeout)
-	default:
+	case stateHalfOpen:
 		cb.expiry = zero
 	}
 }
 
-// State returns the current state of the circuit breaker
+// State returns the current state of the circuit breaker.
 func (cb *CircuitBreaker) State() CircuitBreakerState {
 	cb.mu.RLock()
 	defer cb.mu.RUnlock()
@@ -354,7 +360,7 @@ func (cb *CircuitBreaker) State() CircuitBreakerState {
 	return state
 }
 
-// Counts returns the current counts
+// Counts returns the current counts.
 func (cb *CircuitBreaker) Counts() Counts {
 	cb.mu.RLock()
 	defer cb.mu.RUnlock()
@@ -362,7 +368,7 @@ func (cb *CircuitBreaker) Counts() Counts {
 	return cb.counts
 }
 
-// Metrics returns comprehensive metrics about the circuit breaker
+// Metrics returns comprehensive metrics about the circuit breaker.
 func (cb *CircuitBreaker) Metrics() CircuitBreakerMetrics {
 	cb.mu.RLock()
 	defer cb.mu.RUnlock()
@@ -386,7 +392,7 @@ func (cb *CircuitBreaker) Metrics() CircuitBreakerMetrics {
 	}
 }
 
-// CircuitBreakerMetrics contains detailed metrics about the circuit breaker
+// CircuitBreakerMetrics contains detailed metrics about the circuit breaker.
 type CircuitBreakerMetrics struct {
 	Name                string
 	State               CircuitBreakerState
@@ -405,7 +411,7 @@ type CircuitBreakerMetrics struct {
 	AverageResponseTime time.Duration
 }
 
-// calculateUptimePercentage calculates the uptime percentage
+// calculateUptimePercentage calculates the uptime percentage.
 func (cb *CircuitBreaker) calculateUptimePercentage() float64 {
 	if cb.totalRequests == 0 {
 		return 100.0
@@ -413,7 +419,7 @@ func (cb *CircuitBreaker) calculateUptimePercentage() float64 {
 	return float64(cb.totalSuccesses) / float64(cb.totalRequests) * 100.0
 }
 
-// calculateAverageResponseTime calculates the average response time
+// calculateAverageResponseTime calculates the average response time.
 func (cb *CircuitBreaker) calculateAverageResponseTime() time.Duration {
 	// This is a simplified calculation
 	// In a real implementation, you'd track actual response times
@@ -423,12 +429,12 @@ func (cb *CircuitBreaker) calculateAverageResponseTime() time.Duration {
 	return time.Millisecond * 100
 }
 
-// Reset resets the circuit breaker to its initial state
+// Reset resets the circuit breaker to its initial state.
 func (cb *CircuitBreaker) Reset() {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 
-	cb.setState(StateClosed, time.Now())
+	cb.setState(stateClosed, time.Now())
 	cb.totalRequests = 0
 	cb.totalSuccesses = 0
 	cb.totalFailures = 0
@@ -442,26 +448,26 @@ func (cb *CircuitBreaker) Reset() {
 	}
 }
 
-// IsReady returns true if the circuit breaker is ready to handle requests
+// IsReady returns true if the circuit breaker is ready to handle requests.
 func (cb *CircuitBreaker) IsReady() bool {
 	state := cb.State()
-	return state == StateClosed || state == StateHalfOpen
+	return state == stateClosed || state == stateHalfOpen
 }
 
-// CircuitBreakerManager manages multiple circuit breakers
+// CircuitBreakerManager manages multiple circuit breakers.
 type CircuitBreakerManager struct {
 	breakers map[string]*CircuitBreaker
 	mu       sync.RWMutex
 }
 
-// NewCircuitBreakerManager creates a new circuit breaker manager
+// NewCircuitBreakerManager creates a new circuit breaker manager.
 func NewCircuitBreakerManager() *CircuitBreakerManager {
 	return &CircuitBreakerManager{
 		breakers: make(map[string]*CircuitBreaker),
 	}
 }
 
-// GetOrCreate gets an existing circuit breaker or creates a new one
+// GetOrCreate gets an existing circuit breaker or creates a new one.
 func (cbm *CircuitBreakerManager) GetOrCreate(name string, config CircuitBreakerConfig) *CircuitBreaker {
 	cbm.mu.Lock()
 	defer cbm.mu.Unlock()
@@ -475,7 +481,7 @@ func (cbm *CircuitBreakerManager) GetOrCreate(name string, config CircuitBreaker
 	return cb
 }
 
-// Get gets an existing circuit breaker
+// Get gets an existing circuit breaker.
 func (cbm *CircuitBreakerManager) Get(name string) (*CircuitBreaker, bool) {
 	cbm.mu.RLock()
 	defer cbm.mu.RUnlock()
@@ -484,7 +490,7 @@ func (cbm *CircuitBreakerManager) Get(name string) (*CircuitBreaker, bool) {
 	return cb, exists
 }
 
-// Remove removes a circuit breaker
+// Remove removes a circuit breaker.
 func (cbm *CircuitBreakerManager) Remove(name string) {
 	cbm.mu.Lock()
 	defer cbm.mu.Unlock()
@@ -492,7 +498,7 @@ func (cbm *CircuitBreakerManager) Remove(name string) {
 	delete(cbm.breakers, name)
 }
 
-// List returns all circuit breaker names
+// List returns all circuit breaker names.
 func (cbm *CircuitBreakerManager) List() []string {
 	cbm.mu.RLock()
 	defer cbm.mu.RUnlock()
@@ -504,7 +510,7 @@ func (cbm *CircuitBreakerManager) List() []string {
 	return names
 }
 
-// GetMetrics returns metrics for all circuit breakers
+// GetMetrics returns metrics for all circuit breakers.
 func (cbm *CircuitBreakerManager) GetMetrics() map[string]CircuitBreakerMetrics {
 	cbm.mu.RLock()
 	defer cbm.mu.RUnlock()
@@ -516,7 +522,7 @@ func (cbm *CircuitBreakerManager) GetMetrics() map[string]CircuitBreakerMetrics 
 	return metrics
 }
 
-// Reset resets all circuit breakers
+// Reset resets all circuit breakers.
 func (cbm *CircuitBreakerManager) Reset() {
 	cbm.mu.Lock()
 	defer cbm.mu.Unlock()

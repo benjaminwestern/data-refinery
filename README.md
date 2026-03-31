@@ -1,419 +1,483 @@
-# Data Refinery
+<div align="center">
+  <img src="assets/banner.svg" alt="Data Refinery banner" />
+</div>
 
-Data Refinery helps you inspect large JSON, NDJSON, and JSONL datasets and run
-preview-first cleanup jobs across local storage and Google Cloud Storage
-(GCS). Use it when you need one tool for duplicate analysis, schema discovery,
-targeted record review, and operational rewrite workflows with backups.
+<br>
 
-Data Refinery keeps analysis and mutation separate on purpose. You can stay in
-read-only analysis until you understand the scope of a cleanup, then move to a
-guarded mutation flow when you are ready to act.
+<img src="assets/header-overview.svg" alt="Overview" />
 
-> **Start here:** Build the binary, validate a key against `./test_data`, then
-> run one headless analysis and one rewrite preview. The commands in the next
-> section get you there in a few minutes.
+## Overview
 
-## Why Data Refinery exists
+Data Refinery gives you one CLI for three distinct jobs: normalize raw files
+into a stable dataset, inspect JSON-family data without changing it, and then
+run preview-first cleanup when you are ready to mutate source records. The
+product surface is intentionally workflow-first so the first useful command and
+the first safe change are both obvious.
 
-Data Refinery replaces the usual mix of one-off scripts, manual spot checks,
-and risky in-place edits with a repeatable workflow. It gives you a fast way
-to understand a dataset first and only mutate data once you can explain the
-change you are about to make.
+This release folds the older `py-file-ingestion` capability into the current
+framework. You can now convert CSV, TSV, XLSX, JSON, NDJSON, and JSONL inputs
+into one unified schema, then write the result locally or to `gs://...`.
 
-- Data Refinery brings duplicate analysis, targeted search, schema discovery,
-  and cleanup planning into one CLI, so you do not need separate utilities for
-  each stage of the job.
-- Data Refinery supports both local paths and `gs://` URIs, which lets you use
-  the same operating model whether your data sits on disk or in GCS.
-- Data Refinery keeps mutation workflows preview-first and backup-aware, which
-  lowers the chance of making a large cleanup change without context or a
-  recovery path.
+| Workflow | Primary command | Use it when you need to | Main outputs |
+| --- | --- | --- | --- |
+| Ingest | `./data-refinery ingest ...` | Convert heterogeneous source files into one standardized dataset. | `.csv`, `.json`, `.ndjson`, `.jsonl`, plus optional `.json` run summary |
+| Analysis | `./data-refinery ...` or `./data-refinery analyse ...` | Validate keys, review duplicates, search records, discover schema, and generate reports. | stdout plus optional saved reports and derived artifacts |
+| Rewrite | `./data-refinery rewrite ...` | Preview or apply targeted cleanup rules to JSON-family source files. | Preview summary, logs, backups, and applied changes |
+
+![Overview workflow](assets/flow-overview.svg)
+
+The source for this diagram lives in
+[`assets/flow-overview.d2`](assets/flow-overview.d2).
+
+<br>
+
+<img src="assets/header-prerequisites.svg" alt="Prerequisites" />
+
+## Prerequisites
+
+You can run Data Refinery locally with only the repository toolchain. GCS-backed
+workflows need Google Cloud credentials and bucket access in addition to the
+local setup.
+
+### Local-only use
+
+For local files and the checked-in examples, you need:
+
+- `mise` installed on your machine
+- `mise install` run from the repository root
+- `mise run build` when you want the `./data-refinery` binary in the repo root
+
+### GCS use
+
+For any `gs://...` input or output path, you also need:
+
+- Google Application Default Credentials available to the process
+- IAM access to read the source buckets or objects you reference
+- IAM access to write any destination buckets or objects you target
+- a local ingest mapping file, because `-mapping-file` does not load from
+  `gs://`
+
+The most common local setup path is:
+
+```sh
+gcloud auth application-default login
+```
+
+If you use service accounts instead, make sure the process environment exposes
+valid ADC credentials before you run the CLI.
+
+<br>
+
+<img src="assets/header-quick-start.svg" alt="Quick start" />
 
 ## Quick start
 
-This quick start uses the repository's checked-in fixture data so you can see
-the main workflows without preparing your own dataset first. The local
-commands work without any cloud setup.
+The fastest path through the repository uses the checked-in fixtures. These
+steps install the toolchain, build the binary, normalize sample input, inspect
+sample data, and preview a cleanup run.
 
-1. Install the toolchain and build the binary.
+1. Install the local toolchain and build the binary.
 
    ```sh
    mise install
-   go build -o data-refinery ./cmd/data-refinery
+   mise run build
    ```
 
-2. Run a fast key validation pass against the sample data.
+2. Normalize first-class CSV, TSV, and JSON inputs into one unified dataset.
+
+   ```sh
+   ./data-refinery ingest -config examples/ingest-simple-config.json
+   ```
+
+3. Run a read-only validation pass against the repository test data.
 
    ```sh
    ./data-refinery -validate -path ./test_data -key id
    ```
 
-3. Run a full headless analysis and save both text and JSON reports.
+4. Run a headless analysis with an explicit app config.
 
    ```sh
-   ./data-refinery \
-     -headless \
-     -path ./test_data \
-     -key id \
-     -output txt \
-     -output.txt=true \
-     -output.json=true
+   ./data-refinery --app-config examples/test_full_advanced.json -headless
    ```
 
-4. Run an advanced analysis from an explicit app config instead of relying on
-   implicit config discovery.
-
-   ```sh
-   ./data-refinery \
-     --app-config examples/test_full_advanced.json \
-     -headless
-   ```
-
-5. Preview a rewrite job from a portable rewrite config.
+5. Preview a rewrite workflow before you apply any mutation.
 
    ```sh
    ./data-refinery rewrite -config examples/rewrite-delete-config.json
    ```
 
-> **Note:** For GCS paths, authenticate with Google Application Default
-> Credentials before you run the command. Data Refinery uses your ambient
-> Google credentials rather than a custom auth layer.
+For GCS paths, authenticate with Google Application Default Credentials before
+you run the command. Data Refinery uses ambient Google credentials rather than
+a separate auth layer.
 
-## Choose the right workflow
+<br>
 
-Data Refinery has two primary operating modes. Use analysis to understand the
-dataset and use rewrite when you are ready to change source records.
+<img src="assets/header-workflows.svg" alt="Workflows" />
 
-| Workflow | Main command | Best for | Mutates source data |
-| --- | --- | --- | --- |
-| Analysis | `./data-refinery` or `./data-refinery -headless` | Duplicate review, key validation, search, schema discovery, derived cleanup artifacts, and interactive local purge | No, except local purge flows that you explicitly enable in the TUI |
-| Rewrite | `./data-refinery rewrite ...` | Previewing or applying streamed cleanup rules to local files or GCS objects | Yes, in `apply` mode only |
+## Workflows
 
-The analysis command also accepts `analyse`, `analyze`, and `analysis` as
-aliases if you prefer an explicit subcommand.
+Data Refinery is easiest to use when you treat `ingest`, `analysis`, and
+`rewrite` as separate stages instead of one large mode with too many flags.
+Most teams will normalize first, inspect second, and only then apply cleanup.
 
-## How Data Refinery works
+### Ingest
 
-At a high level, Data Refinery resolves input sources, streams records through
-either the analysis or rewrite engine, and writes logs or artifacts under a
-controlled output path. The internal complexity stays behind those two user
-interfaces.
+Ingest is the entry point when your source files do not already share a stable
+shape. It supports first-class CSV, TSV, and JSON inputs, plus XLSX, NDJSON,
+and JSONL. Mapping files can use the legacy `py-file-ingestion`
+filename-keyed format or the newer structured format with exact matches, globs,
+nested paths, defaults, and attribute capture.
 
-```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#e8f0fe', 'primaryTextColor': '#111827', 'primaryBorderColor': '#6b7280', 'secondaryColor': '#f3f4f6', 'tertiaryColor': '#ffffff', 'lineColor': '#6b7280' }}}%%
-flowchart LR
-  A["Local files or gs:// URIs"] --> B["Source discovery"]
-  B --> C{"Workflow"}
-  C --> D["Analysis engine"]
-  C --> E["Rewrite engine"]
-  D --> F["Reports, search results, schema output, and derived review artifacts"]
-  E --> G["Preview summary or apply with timestamped backups"]
-```
+Supported normalized outputs:
 
-## Analysis workflow
+- `.csv`
+- `.json`
+- `.ndjson`
+- `.jsonl`
 
-Use analysis when you need to understand a dataset before deciding whether it
-needs a cleanup. Analysis can run in the TUI for interactive work or in
-headless mode for scripts, CI, and repeatable validation jobs.
+Use `.csv` only when every normalized row stays scalar. If the normalized row
+contains nested data such as the unified `Attributes` array, the run fails with
+an error that tells you to use `.json`, `.ndjson`, or `.jsonl`.
 
-### Interactive analysis
+First useful ingest commands:
 
-Run the binary without `-headless` or `-validate` when you want a guided
-terminal UI. The TUI lets you configure paths, worker counts, duplicate checks,
-advanced analysis settings, and local purge flows in one place.
+- `./data-refinery ingest -config examples/ingest-simple-config.json`
+- `./data-refinery ingest -config examples/ingest-complex-config.json`
+- `./data-refinery ingest -config examples/ingest-config.json`
 
-```sh
-./data-refinery -path ./test_data
-```
+The normalized schema preserves the older ingestion contract:
+`Id`, `FirstName`, `LastName`, `Email`, `Mobile`, `PostCode`, `DataSource`,
+`SourceCreatedDate`, `SourceModifiedDate`, `SourceFile`, `Attributes`, and
+`BQInsertedDate`.
 
-### Headless analysis and validation
+### Analysis
 
-Run headless mode when you want stdout output plus optional saved reports. Run
-validation mode when you only need to confirm that a key exists and count how
-often it appears.
+Analysis is the default command surface. Use it when your data is already in a
+JSON-family format and you need to understand the dataset before you decide
+whether anything should change.
 
-```sh
-./data-refinery \
-  -headless \
-  -path ./test_data,gs://example-bucket/orders \
-  -key id \
-  -output json
-```
+Analysis supports:
 
-```sh
-./data-refinery -validate -path ./test_data -key id
-```
+- TUI-driven interactive review
+- Headless validation and duplicate checks
+- Search targets
+- Schema discovery
+- Derived cleanup artifacts
+- Local duplicate purge when you explicitly enable it
 
-### Advanced analysis
+First useful analysis commands:
 
-Advanced analysis extends the read-only side of the tool with search targets,
-custom duplicate hashing, schema discovery, and derived cleanup artifacts. The
-recommended way to run it is with an explicit app config passed through
-`--app-config`.
+- `./data-refinery -validate -path ./test_data -key id`
+- `./data-refinery -headless -path ./test_data -key id -output json`
+- `./data-refinery --app-config examples/test_full_advanced.json -headless`
 
-```sh
-./data-refinery \
-  --app-config examples/test_full_advanced.json \
-  -headless
-```
+Analysis always prints to stdout. When you enable saved outputs, it can also
+write text reports, JSON reports, search results, schema exports, and derived
+cleanup artifacts under `logPath`.
 
-This example config enables search, selective duplicate hashing, schema
-discovery, and a derived deletion output without mutating the source dataset:
+### Rewrite
 
-```json
-{
-  "path": "./test_data",
-  "key": "id",
-  "logPath": "logs",
-  "advanced": {
-    "searchTargets": [
-      {
-        "name": "customer_match",
-        "type": "direct",
-        "path": "customer_id",
-        "targetValues": ["cust-123"]
-      }
-    ],
-    "hashingStrategy": {
-      "mode": "selective",
-      "includeKeys": ["id", "customer_id"],
-      "algorithm": "fnv",
-      "normalize": true
-    },
-    "deletionRules": [
-      {
-        "searchTarget": "customer_match",
-        "action": "delete_matches",
-        "outputPath": "logs/derived/test-full-pruned.jsonl"
-      }
-    ]
-  }
-}
-```
+Rewrite is the mutation stage. It operates on JSON, NDJSON, and JSONL inputs
+and is designed around a preview-first path so you can confirm scope before
+any apply-mode run writes changes.
 
-### Analysis outputs
+Rewrite supports:
 
-Analysis always prints a report to stdout, and it can also write files under
-`logPath`. The exact file set depends on which features you enable for the
-run.
+- deleting whole rows by top-level key match
+- deleting matching items from nested arrays
+- recursively updating values by key
+- filtering delete or update operations by state or ID
+- loading long target lists from CSV files
 
-- Data Refinery writes `analysis_summary_*.txt`,
-  `analysis_details_*.txt`, and `analysis_report_*.json` when you enable the
-  matching report outputs.
-- Data Refinery writes `search_results_*.json` and
-  `search_target_<name>_*.json` when advanced search is enabled.
-- Data Refinery writes `schema_report_*.json`, `schema_report_*.csv`, or
-  `schema_report_*.yaml` when schema discovery is enabled.
-- Data Refinery writes `deletion_stats_*.json`, `deletion_summary_*.txt`, and
-  any configured deletion-rule output paths when derived cleanup artifacts are
-  enabled.
+First useful rewrite commands:
 
-### Local purge
+- `./data-refinery rewrite -config examples/rewrite-delete-config.json`
+- `./data-refinery rewrite -config examples/rewrite-update-config.json`
+- `./data-refinery rewrite -path ./test_data -top-level-key customer_id
+  -top-level-vals ./ids.csv -mode preview`
 
-Local purge is the one mutation path that lives inside the analysis experience.
-It lets you review duplicate IDs or duplicate rows in the TUI and then remove
-the selected records from local files.
+Apply mode writes changes and creates backups. Preview mode reports what would
+happen without mutating the source dataset.
 
-```sh
-./data-refinery -path ./test_data -purge-ids
-```
+<br>
 
-Local purge is not available for GCS inputs. It is treated as a guarded
-mutation workflow, so the safety rules in a later section apply to it.
+<img src="assets/header-capabilities.svg" alt="What it can and can't do" />
 
-## Rewrite workflow
+## What it can and can't do
 
-Use rewrite when the dataset is already scoped and you know which rows or
-values need to change. Rewrite is CLI-only today and is designed for
-line-oriented JSON, NDJSON, and JSONL jobs where you want a preview before an
-apply.
+Data Refinery is intentionally narrow. It focuses on normalization, inspection,
+and JSON-family cleanup workflows rather than trying to be a general-purpose
+ETL platform.
 
-### What rewrite can change
+### What it can do today
 
-Rewrite focuses on a small set of predictable cleanup operations. You can
-combine them with state and ID filters to keep the blast radius narrow.
+Data Refinery can do these jobs today:
 
-- Rewrite can delete whole rows when a top-level key matches a target list.
-- Rewrite can remove matching entries from a nested array inside each record.
-- Rewrite can update a value recursively wherever a key appears in a row.
-- Rewrite can read target values from a CSV file when the inline list would be
-  too long to manage on the command line.
+- normalize CSV, TSV, XLSX, JSON, NDJSON, and JSONL inputs into one standard
+  schema
+- write normalized output locally or to `gs://...`
+- export normalized datasets as `.csv`, `.json`, `.ndjson`, or `.jsonl`
+- preserve the older `py-file-ingestion` schema and legacy mapping format
+- analyse JSON, NDJSON, and JSONL datasets in TUI, headless, or validation mode
+- generate reports, search results, schema outputs, and derived cleanup artifacts
+- preview and apply rewrite rules to JSON-family files with backup-aware apply
+  mode
 
-### Rewrite quick examples
+### What it can't do yet
 
-These examples cover the most common rewrite jobs. Start with `preview`, then
-switch to `apply` once the summary matches your expectation.
+Data Refinery does not do these things yet:
 
-Preview a reusable cleanup config:
+- ingest or export Parquet
+- ingest or export Avro
+- write directly to BigQuery after normalization
+- rewrite CSV, TSV, or XLSX source files in place
+- load ingest mapping files from `gs://`; mappings must be local files
+- export CSV when normalized rows contain nested fields such as `Attributes`
+- auto-expand arbitrary unknown nested objects into `Attributes` without
+  explicit mappings
+
+<br>
+
+<img src="assets/header-cli-surface.svg" alt="CLI and package surface" />
+
+## CLI and package surface
+
+The supported interface for this repository is the CLI plus the config files
+and examples checked into the repo. That is the stable surface to automate
+against. The Go packages under `internal/` are implementation details, not a
+public library API.
+
+If you need programmatic use today, call the CLI from your own automation or
+copy the internal logic intentionally with the expectation that it can change
+between releases.
+
+### Command model
+
+The root command defaults to analysis. The explicit subcommands make the
+workflow boundaries clearer.
+
+| Command | Purpose |
+| --- | --- |
+| `./data-refinery --help` | Show the top-level workflow model and the first useful commands. |
+| `./data-refinery analyse --help` | Show analysis help. `analyze` and `analysis` are aliases. |
+| `./data-refinery ingest --help` | Show ingest help. `normalize` and `normalise` are aliases. |
+| `./data-refinery rewrite --help` | Show rewrite help and rewrite-specific flags. |
+
+### Help and examples
+
+The CLI help now explains each workflow in the same structure as this README:
+what the command is for, when to use it, which outputs it produces, and which
+flags matter first.
+
+Run these commands when you want the current help text directly from the
+binary:
 
 ```sh
-./data-refinery rewrite -config examples/rewrite-delete-config.json
+./data-refinery --help
+./data-refinery ingest --help
+./data-refinery analyse --help
+./data-refinery rewrite --help
 ```
 
-Apply a reusable update config with backups:
+When you are working from source and do not want to type raw `go run`
+commands, use the matching `mise` tasks instead:
 
 ```sh
-./data-refinery rewrite -config examples/rewrite-update-config.json
+mise run cli:help
+mise run cli:help:analysis
+mise run cli:help:ingest
+mise run cli:help:rewrite
 ```
 
-Run a one-off preview directly from flags:
+### Config surfaces
 
-```sh
-./data-refinery rewrite \
-  -path gs://example-bucket/orders \
-  -top-level-key status \
-  -top-level-vals archived,cancelled \
-  -mode preview
-```
+Data Refinery uses three config shapes on purpose. That keeps the default path
+small and keeps advanced controls behind an explicit file boundary.
 
-Use a CSV file as the target list source:
-
-```sh
-./data-refinery rewrite \
-  -path ./test_data \
-  -top-level-key customer_id \
-  -top-level-vals ./ids.csv \
-  -mode preview
-```
-
-The CSV reader expects a header row and one value per later row.
-
-### Portable rewrite config
-
-Rewrite configs are flat JSON job definitions that you pass with `-config`.
-Local relative paths in `paths`, `logPath`, `backupDir`, and
-`approvedOutputRoot` resolve from the rewrite config file directory.
-
-```json
-{
-  "paths": [
-    "../test_data/test2.json",
-    "../test_data/search_test2.json"
-  ],
-  "workers": 4,
-  "logPath": "../logs",
-  "approvedOutputRoot": "../workspace-output",
-  "mode": "preview",
-  "topLevelKey": "customer_id",
-  "topLevelValues": ["cust-456"]
-}
-```
-
-Rewrite starts from the base app config, overlays the portable rewrite config
-if you pass one, then applies any rewrite flags you set on the command line.
-
-## Mutation safety model
-
-Data Refinery now enforces extra checks around mutation workflows so that local
-write targets and config trust are explicit. These checks do not affect normal
-read-only analysis.
-
-- Guarded mutation workflows include `rewrite -mode apply`, local purge inside
-  the TUI, and analysis runs that write deletion-rule output files.
-- If a guarded workflow picks up the base app config from implicit discovery,
-  Data Refinery requires `--app-config`, `--allow-implicit-config`, or
-  `--yes-i-know-what-im-doing` before it proceeds.
-- Local write targets for guarded workflows must stay under
-  `--approved-output-root` or `approvedOutputRoot`. If you do not set one,
-  Data Refinery uses the current working directory as the default boundary.
-- GCS rewrite targets are still supported, but the local log, backup, and
-  artifact paths for the same run must satisfy the approved-root rule unless
-  you intentionally bypass it.
-
-> **Warning:** `--yes-i-know-what-im-doing` disables both the implicit-config
-> guard and the approved-output-root guard. Use it only when you understand why
-> the default safety model is blocking the run.
-
-## Configuration
-
-Data Refinery uses one base app config model for analysis and shared runtime
-settings, then adds a separate portable config format for rewrite jobs. The
-base model is where worker counts, log paths, and advanced analysis settings
-live.
-
-### Base app config
-
-The base app config can come from defaults, environment variables, an explicit
-`--app-config` file, or the first implicit config file that exists in the
-supported search path. CLI flags always override loaded values for the current
-run.
-
-The load order is:
-
-1. Built-in defaults.
-2. Environment variables such as `DATA_REFINERY_PATH`,
-   `DATA_REFINERY_KEY`, `DATA_REFINERY_WORKERS`,
-   `DATA_REFINERY_LOG_PATH`, `DATA_REFINERY_CHECK_KEY`, and
-   `DATA_REFINERY_CHECK_ROW`.
-3. An explicit `--app-config <file>` path, or the first implicit match from
-   `config/config.json`, `config.json`, `data-refinery.json`,
-   `~/.data-refinery.json`, or `/etc/data-refinery/config.json`.
-4. Command-line flags for the current invocation.
-
-Using `--app-config` is the clearest way to keep a run self-contained and
-auditable, especially for guarded mutation workflows.
-
-### Important flags
-
-These flags are the ones most people need once they move beyond the first
-quick start.
-
-| Scope | Flag | What it does |
+| Config surface | Used by | Notes |
 | --- | --- | --- |
-| Analysis and rewrite | `--app-config` | Loads a specific base app config file instead of relying on implicit config discovery. |
-| Analysis and rewrite | `--approved-output-root` | Sets the local root that guarded mutation writes must stay under. |
-| Analysis and rewrite | `--allow-implicit-config` | Opts into using an implicitly discovered app config for guarded mutation workflows. |
-| Analysis and rewrite | `--yes-i-know-what-im-doing` | Bypasses the implicit-config and approved-output-root safety checks. |
-| Analysis | `-headless` | Runs analysis without the TUI and prints the report to stdout. |
-| Analysis | `-validate` | Runs a key validation pass instead of a full analysis. |
-| Analysis | `-output.txt` and `-output.json` | Saves text or JSON report files under `logPath`. |
-| Rewrite | `-config` | Loads a portable rewrite job definition. |
-| Rewrite | `-mode preview` or `-mode apply` | Chooses whether the run only reports changes or writes them. |
-| Rewrite | `-backup-dir` | Sets the local backup location used for apply-mode runs. |
+| Base app config | analysis and shared runtime settings | Best passed explicitly with `--app-config` for repeatable runs |
+| Portable ingest job config | `ingest -config` | Relative paths resolve from the ingest config file location |
+| Portable rewrite job config | `rewrite -config` | Relative paths resolve from the rewrite config file location |
 
-## Repository guides
+### Safety model
 
-The root README is the fastest path into the project, but the repository also
-includes focused guides for common jobs and deeper operational context.
+Read-only analysis is the default. Guarded workflows add extra checks so local
+write targets and config trust stay explicit.
 
-- [examples/README.md](examples/README.md) helps you choose the right example
-  config or workflow file for a specific job.
-- [examples/ADVANCED_FEATURES.md](examples/ADVANCED_FEATURES.md) explains the
-  advanced analysis model in more depth, including search targets and schema
-  discovery.
-- [examples/REWRITE_WORKFLOWS.md](examples/REWRITE_WORKFLOWS.md) focuses on
-  preview-first rewrite jobs and reusable portable configs.
-- [data-refinery-threat-model.md](data-refinery-threat-model.md) documents the
-  security model and trust boundaries for the current codebase.
-- [security_best_practices_report.md](security_best_practices_report.md)
-  records the latest security review findings and remediations.
+Guarded workflows include:
+
+- ingest output writes
+- rewrite apply mode
+- local purge inside the TUI
+- analysis runs that write derived cleanup artifacts
+
+The main safety controls are:
+
+- `--app-config` for explicit config trust
+- `--allow-implicit-config` when you intentionally rely on discovered config
+- `--approved-output-root` for local write boundaries
+- `--yes-i-know-what-im-doing` only when you mean to bypass those guards
+
+<br>
+
+<img src="assets/header-configuration.svg" alt="Configuration and examples" />
+
+## Configuration and examples
+
+The repository ships examples for the first success path and for the more
+complicated refactor patterns. Start from the checked-in examples instead of
+starting from an empty file.
+
+### Recommended examples
+
+Use these examples when you want the shortest route to a specific workflow.
+
+| File | Use it when you want to |
+| --- | --- |
+| [`examples/ingest-simple-config.json`](examples/ingest-simple-config.json) | Normalize the simplest CSV, TSV, and JSON walkthrough. |
+| [`examples/ingest-simple-mappings.yaml`](examples/ingest-simple-mappings.yaml) | Start from direct field-to-schema mappings. |
+| [`examples/ingest-complex-config.json`](examples/ingest-complex-config.json) | Run a nested JSON normalization walkthrough. |
+| [`examples/ingest-complex-mappings.yaml`](examples/ingest-complex-mappings.yaml) | Map nested paths into the unified `Attributes` array. |
+| [`examples/ingest-config.json`](examples/ingest-config.json) | Run the mixed CSV and JSONL ingest walkthrough. |
+| [`examples/test_full_advanced.json`](examples/test_full_advanced.json) | Run a compact advanced analysis walkthrough. |
+| [`examples/rewrite-delete-config.json`](examples/rewrite-delete-config.json) | Preview or apply row deletion from a portable rewrite config. |
+| [`examples/rewrite-update-config.json`](examples/rewrite-update-config.json) | Preview or apply recursive updates with backups. |
+
+### Complex normalization example
+
+The complex ingest example covers the pattern you asked for: taking nested
+key-value structures and standardizing them into an array of objects instead of
+preserving the original field names.
+
+That example maps explicit nested paths into:
+
+```json
+[
+  { "Key": "preference.language", "Value": "en" },
+  { "Key": "loyalty.status", "Value": "gold" }
+]
+```
+
+Current boundary: Data Refinery supports explicit nested-path mappings today.
+It does not yet auto-expand arbitrary unknown nested objects into `Attributes`
+without those mappings being named in the config.
+
+### More repository guides
+
+The root README is the shortest path into the project. These focused guides go
+deeper when you need more detail:
+
+- [`examples/README.md`](examples/README.md) for example selection and path behavior
+- [`examples/ADVANCED_FEATURES.md`](examples/ADVANCED_FEATURES.md) for advanced analysis
+- [`examples/REWRITE_WORKFLOWS.md`](examples/REWRITE_WORKFLOWS.md) for
+  preview-first rewrite jobs
+
+<br>
+
+<img src="assets/header-diagrams.svg" alt="Behaviour diagrams" />
+
+## Behaviour diagrams
+
+The diagrams in this section are stored as D2 source files in `assets/` and
+rendered to SVG for direct embedding in this README. Regenerate them with
+`mise run render-diagrams`.
+
+### Overall flow
+
+This diagram shows the main handoff between the three workflows.
+
+![Overall workflow diagram](assets/flow-overview.svg)
+
+Source: [`assets/flow-overview.d2`](assets/flow-overview.d2)
+
+### Ingest behavior
+
+This diagram shows how ingest matches source files, normalizes records, and
+branches on the chosen output format.
+
+![Ingest workflow diagram](assets/flow-ingest.svg)
+
+Source: [`assets/flow-ingest.d2`](assets/flow-ingest.d2)
+
+### Analysis behavior
+
+This diagram shows the read-only analysis flow, including the optional TUI-only
+local purge branch.
+
+![Analysis workflow diagram](assets/flow-analysis.svg)
+
+Source: [`assets/flow-analysis.d2`](assets/flow-analysis.d2)
+
+### Rewrite behavior
+
+This diagram shows how rewrite loads rules, runs in preview or apply mode, and
+branches to either summaries or committed changes with backups.
+
+![Rewrite workflow diagram](assets/flow-rewrite.svg)
+
+Source: [`assets/flow-rewrite.d2`](assets/flow-rewrite.d2)
+
+<br>
+
+<img src="assets/header-development.svg" alt="Development" />
 
 ## Development
 
-The repository is a standard Go module with `mise` support for tool
-installation. These are the baseline commands to run before you push a change.
+The repository now includes the same lightweight README asset workflow used in
+the reference skills repository. The visual assets are generated, not hand
+edited, so documentation changes stay maintainable. The default local
+development surface is `mise`, with `hk` available for pre-commit and
+pre-push-style checks.
 
-```sh
-go test ./...
-golangci-lint fmt ./...
-golangci-lint run ./...
-```
+| Command | Purpose |
+| --- | --- |
+| `mise install` | Install Go, Python, and the D2 CLI declared in `mise.toml`. |
+| `mise run build` | Build the `./data-refinery` binary. |
+| `mise run test` | Run the Go test suite. |
+| `mise run go:fmt` | Apply Go formatters defined in `.golangci.yaml`. |
+| `mise run go:fmt:check` | Check Go formatting without rewriting files. |
+| `mise run go:lint` | Run `golangci-lint` using the repo config. |
+| `mise run check:quick` | Run the fast repo, formatting, lint, and CLI-help checks. |
+| `mise run check` | Run the full local verification suite, including tests. |
+| `mise run cli:help` | Print the top-level CLI help directly from source. |
+| `mise run generate-assets` | Regenerate the banner and section header SVGs. |
+| `mise run render-diagrams` | Render the D2 diagrams in `assets/` to SVG. |
+| `mise run docs-assets` | Regenerate both README art and D2 diagram outputs. |
+| `mise run hk:install` | Install `hk` git hooks for this repository. |
+| `mise run hk:pre-commit` | Run the local fixing hook profile without creating a commit. |
+| `mise run hk:pre-push` | Run the verifier hook profile locally before you push. |
 
-If the tools are missing in your shell, run `mise install` first.
+The asset scripts live in [`scripts/generate_assets.py`](scripts/generate_assets.py)
+and [`scripts/render_diagrams.sh`](scripts/render_diagrams.sh). Generated files
+live in [`assets/`](assets/). The hook configuration lives in
+[`hk.pkl`](hk.pkl), and the Go lint and formatter policy lives in
+[`.golangci.yaml`](.golangci.yaml).
+
+<br>
+
+<img src="assets/header-roadmap.svg" alt="Roadmap" />
+
+## Roadmap
+
+The near-term roadmap is intentionally narrow. The next work expands supported
+data targets and destinations without changing the three-stage workflow model.
+
+### Soon to come
+
+- Parquet support for ingest and unified export workflows
+- Avro support for ingest and unified export workflows
+- BigQuery as a direct destination after normalization
+- richer nested attribute expansion patterns for complex input objects
 
 ## Next steps
 
-If you are new to the project, this sequence gives you the shortest route from
-orientation to a realistic cleanup workflow.
+If you are picking up the project for the first time, use this sequence:
 
-1. Run `./data-refinery -validate -path ./test_data -key id`.
+1. Run `./data-refinery ingest -config examples/ingest-simple-config.json`.
 2. Run `./data-refinery --app-config examples/test_full_advanced.json -headless`.
-3. Read [examples/README.md](examples/README.md) and pick the next example that
-   matches your dataset.
-4. Run `./data-refinery rewrite -config examples/rewrite-delete-config.json` in
-   preview mode before you attempt an apply.
-
-## License
-
-Data Refinery is licensed under the MIT License. See
-[LICENSE](LICENSE) for the full text.
+3. Review outputs under `logPath`.
+4. Run `./data-refinery rewrite -config examples/rewrite-delete-config.json`.
+5. Read [`examples/README.md`](examples/README.md) and choose the next example
+   that matches your own dataset.

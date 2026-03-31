@@ -163,7 +163,7 @@ func (e *smokeEnvironment) runAnalysis(t *testing.T, paths ...string) (*report.A
 		t.Fatal("expected report to be non-nil")
 	}
 
-	baseName := report.SaveAndLog(rep, cfg.LogPath, cfg.EnableTxtOutput, cfg.EnableJsonOutput, cfg.CheckKey, cfg.CheckRow, cfg.ShowFolderBreakdown)
+	baseName := report.SaveAndLog(rep, cfg.LogPath, cfg.EnableTxtOutput, cfg.EnableJSONOutput, cfg.CheckKey, cfg.CheckRow, cfg.ShowFolderBreakdown)
 	if err := output.WriteAdvancedArtifacts(cfg.LogPath, cfg, rep); err != nil {
 		t.Fatalf("failed to write advanced artifacts: %v", err)
 	}
@@ -180,7 +180,7 @@ func newSmokeConfig(logPath string) *config.Config {
 		CheckRow:            true,
 		ShowFolderBreakdown: true,
 		EnableTxtOutput:     true,
-		EnableJsonOutput:    true,
+		EnableJSONOutput:    true,
 		Advanced: &config.AdvancedConfig{
 			SearchTargets: []config.SearchTarget{
 				{
@@ -378,13 +378,13 @@ func assertAdvancedOutputs(t *testing.T, logDir string) {
 	}
 }
 
-func searchResultsFromReport(t *testing.T, rep *report.AnalysisReport) *search.SearchResults {
+func searchResultsFromReport(t *testing.T, rep *report.AnalysisReport) *search.Results {
 	t.Helper()
 
 	switch typed := rep.SearchResults.(type) {
-	case *search.SearchResults:
+	case *search.Results:
 		return typed
-	case search.SearchResults:
+	case search.Results:
 		return &typed
 	default:
 		t.Fatalf("unexpected search results type: %T", rep.SearchResults)
@@ -392,13 +392,13 @@ func searchResultsFromReport(t *testing.T, rep *report.AnalysisReport) *search.S
 	}
 }
 
-func schemaReportFromReport(t *testing.T, rep *report.AnalysisReport) *schema.SchemaReport {
+func schemaReportFromReport(t *testing.T, rep *report.AnalysisReport) *schema.Report {
 	t.Helper()
 
 	switch typed := rep.SchemaReport.(type) {
-	case *schema.SchemaReport:
+	case *schema.Report:
 		return typed
-	case schema.SchemaReport:
+	case schema.Report:
 		return &typed
 	default:
 		t.Fatalf("unexpected schema report type: %T", rep.SchemaReport)
@@ -406,13 +406,13 @@ func schemaReportFromReport(t *testing.T, rep *report.AnalysisReport) *schema.Sc
 	}
 }
 
-func deletionStatsFromReport(t *testing.T, rep *report.AnalysisReport) *deletion.DeletionStats {
+func deletionStatsFromReport(t *testing.T, rep *report.AnalysisReport) *deletion.Stats {
 	t.Helper()
 
 	switch typed := rep.DeletionStats.(type) {
-	case *deletion.DeletionStats:
+	case *deletion.Stats:
 		return typed
-	case deletion.DeletionStats:
+	case deletion.Stats:
 		return &typed
 	default:
 		t.Fatalf("unexpected deletion stats type: %T", rep.DeletionStats)

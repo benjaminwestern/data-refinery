@@ -1,0 +1,22 @@
+[
+  {
+    "identifier": "3301",
+    "first_name": "Elliot",
+    "last_name": "Gray",
+    "email": "elliot@example.com",
+    "mobile": "0400000005",
+    "postcode": "3004",
+    "status": "active",
+    "source": "json-api"
+  },
+  {
+    "identifier": "3302",
+    "first_name": "Flynn",
+    "last_name": "Cole",
+    "email": "flynn@example.com",
+    "mobile": "0400000006",
+    "postcode": "3005",
+    "status": "inactive",
+    "source": "json-api"
+  }
+]

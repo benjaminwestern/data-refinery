@@ -4,48 +4,51 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"runtime"
 	"sync"
 	"time"
+
+	"github.com/benjaminwestern/data-refinery/internal/safety"
 )
 
 var (
-	ErrHealthCheckFailed    = errors.New("health check failed")
-	ErrHealthCheckTimeout   = errors.New("health check timed out")
-	ErrHealthCheckDisabled  = errors.New("health check is disabled")
-	ErrHealthServiceUnknown = errors.New("health service unknown")
+	errHealthCheckTimeout   = errors.New("health check timed out")
+	errHealthServiceUnknown = errors.New("health service unknown")
 )
 
-// HealthStatus represents the health status of a component
+// HealthStatus represents the health status of a component.
 type HealthStatus int
 
 const (
-	HealthStatusUnknown HealthStatus = iota
-	HealthStatusHealthy
-	HealthStatusDegraded
-	HealthStatusUnhealthy
-	HealthStatusCritical
-	HealthStatusMaintenance
+	healthStatusUnknown HealthStatus = iota
+	healthStatusHealthy
+	healthStatusDegraded
+	healthStatusUnhealthy
+	healthStatusCritical
+	healthStatusMaintenance
 )
 
 func (h HealthStatus) String() string {
 	switch h {
-	case HealthStatusHealthy:
+	case healthStatusUnknown:
+		return unknownLabel
+	case healthStatusHealthy:
 		return "HEALTHY"
-	case HealthStatusDegraded:
+	case healthStatusDegraded:
 		return "DEGRADED"
-	case HealthStatusUnhealthy:
+	case healthStatusUnhealthy:
 		return "UNHEALTHY"
-	case HealthStatusCritical:
+	case healthStatusCritical:
 		return "CRITICAL"
-	case HealthStatusMaintenance:
+	case healthStatusMaintenance:
 		return "MAINTENANCE"
 	default:
-		return "UNKNOWN"
+		return unknownLabel
 	}
 }
 
-// HealthCheckResult represents the result of a health check
+// HealthCheckResult represents the result of a health check.
 type HealthCheckResult struct {
 	ComponentName string
 	Status        HealthStatus
@@ -56,13 +59,13 @@ type HealthCheckResult struct {
 	Error         error
 }
 
-// HealthChecker defines the interface for health checks
+// HealthChecker defines the interface for health checks.
 type HealthChecker interface {
 	Check(ctx context.Context) HealthCheckResult
 	Name() string
 }
 
-// HealthCheck represents a health check function
+// HealthCheck represents a health check function.
 type HealthCheck struct {
 	name        string
 	checkFunc   func(context.Context) HealthCheckResult
@@ -73,7 +76,7 @@ type HealthCheck struct {
 	description string
 }
 
-// NewHealthCheck creates a new health check
+// NewHealthCheck creates a new health check.
 func NewHealthCheck(name string, checkFunc func(context.Context) HealthCheckResult) *HealthCheck {
 	return &HealthCheck{
 		name:        name,
@@ -86,36 +89,36 @@ func NewHealthCheck(name string, checkFunc func(context.Context) HealthCheckResu
 	}
 }
 
-// WithTimeout sets the timeout for the health check
+// WithTimeout sets the timeout for the health check.
 func (hc *HealthCheck) WithTimeout(timeout time.Duration) *HealthCheck {
 	hc.timeout = timeout
 	return hc
 }
 
-// WithInterval sets the interval for the health check
+// WithInterval sets the interval for the health check.
 func (hc *HealthCheck) WithInterval(interval time.Duration) *HealthCheck {
 	hc.interval = interval
 	return hc
 }
 
-// WithCritical marks the health check as critical
+// WithCritical marks the health check as critical.
 func (hc *HealthCheck) WithCritical(critical bool) *HealthCheck {
 	hc.critical = critical
 	return hc
 }
 
-// WithDescription sets the description for the health check
+// WithDescription sets the description for the health check.
 func (hc *HealthCheck) WithDescription(description string) *HealthCheck {
 	hc.description = description
 	return hc
 }
 
-// Check executes the health check
+// Check executes the health check.
 func (hc *HealthCheck) Check(ctx context.Context) HealthCheckResult {
 	if !hc.enabled {
 		return HealthCheckResult{
 			ComponentName: hc.name,
-			Status:        HealthStatusUnknown,
+			Status:        healthStatusUnknown,
 			Message:       "Health check is disabled",
 			Timestamp:     time.Now(),
 			Duration:      0,
@@ -138,20 +141,20 @@ func (hc *HealthCheck) Check(ctx context.Context) HealthCheckResult {
 
 	// Check for timeout
 	if timeoutCtx.Err() == context.DeadlineExceeded {
-		result.Status = HealthStatusUnhealthy
+		result.Status = healthStatusUnhealthy
 		result.Message = "Health check timed out"
-		result.Error = ErrHealthCheckTimeout
+		result.Error = errHealthCheckTimeout
 	}
 
 	return result
 }
 
-// Name returns the name of the health check
+// Name returns the name of the health check.
 func (hc *HealthCheck) Name() string {
 	return hc.name
 }
 
-// SystemHealthMonitor monitors the overall health of the system
+// SystemHealthMonitor monitors the overall health of the system.
 type SystemHealthMonitor struct {
 	mu            sync.RWMutex
 	healthChecks  map[string]*HealthCheck
@@ -178,16 +181,15 @@ type SystemHealthMonitor struct {
 	checkHistory []HealthCheckResult
 
 	// System metrics
-	systemMetrics    *SystemMetrics
 	metricsCollector *MetricsCollector
 }
 
-// AlertHandler handles health alerts
+// AlertHandler handles health alerts.
 type AlertHandler interface {
 	HandleAlert(alert HealthAlert)
 }
 
-// HealthAlert represents a health alert
+// HealthAlert represents a health alert.
 type HealthAlert struct {
 	ComponentName string
 	Status        HealthStatus
@@ -197,32 +199,32 @@ type HealthAlert struct {
 	Details       map[string]interface{}
 }
 
-// AlertSeverity represents the severity of an alert
+// AlertSeverity represents the severity of an alert.
 type AlertSeverity int
 
 const (
-	AlertSeverityInfo AlertSeverity = iota
-	AlertSeverityWarning
-	AlertSeverityError
-	AlertSeverityCritical
+	alertSeverityInfo AlertSeverity = iota
+	alertSeverityWarning
+	alertSeverityError
+	alertSeverityCritical
 )
 
 func (a AlertSeverity) String() string {
 	switch a {
-	case AlertSeverityInfo:
+	case alertSeverityInfo:
 		return "INFO"
-	case AlertSeverityWarning:
+	case alertSeverityWarning:
 		return "WARNING"
-	case AlertSeverityError:
+	case alertSeverityError:
 		return "ERROR"
-	case AlertSeverityCritical:
+	case alertSeverityCritical:
 		return "CRITICAL"
 	default:
-		return "UNKNOWN"
+		return unknownLabel
 	}
 }
 
-// SystemHealthConfig holds configuration for system health monitoring
+// SystemHealthConfig holds configuration for system health monitoring.
 type SystemHealthConfig struct {
 	Enabled             bool
 	CheckInterval       time.Duration
@@ -231,7 +233,7 @@ type SystemHealthConfig struct {
 	AlertHandlers       []AlertHandler
 }
 
-// DefaultSystemHealthConfig returns default configuration
+// DefaultSystemHealthConfig returns default configuration.
 func DefaultSystemHealthConfig() SystemHealthConfig {
 	return SystemHealthConfig{
 		Enabled:             true,
@@ -242,12 +244,12 @@ func DefaultSystemHealthConfig() SystemHealthConfig {
 	}
 }
 
-// NewSystemHealthMonitor creates a new system health monitor
+// NewSystemHealthMonitor creates a new system health monitor.
 func NewSystemHealthMonitor(config SystemHealthConfig) *SystemHealthMonitor {
 	shm := &SystemHealthMonitor{
 		healthChecks:     make(map[string]*HealthCheck),
 		lastResults:      make(map[string]HealthCheckResult),
-		overallStatus:    HealthStatusHealthy,
+		overallStatus:    healthStatusHealthy,
 		enabled:          config.Enabled,
 		checkInterval:    config.CheckInterval,
 		stopCh:           make(chan struct{}),
@@ -268,10 +270,10 @@ func NewSystemHealthMonitor(config SystemHealthConfig) *SystemHealthMonitor {
 	return shm
 }
 
-// addDefaultHealthChecks adds default system health checks
+// addDefaultHealthChecks adds default system health checks.
 func (shm *SystemHealthMonitor) addDefaultHealthChecks() {
 	// Memory health check
-	memoryCheck := NewHealthCheck("memory", func(ctx context.Context) HealthCheckResult {
+	memoryCheck := NewHealthCheck("memory", func(_ context.Context) HealthCheckResult {
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
 
@@ -282,16 +284,16 @@ func (shm *SystemHealthMonitor) addDefaultHealthChecks() {
 
 		switch {
 		case memoryUsage < 0.7:
-			status = HealthStatusHealthy
+			status = healthStatusHealthy
 			message = "Memory usage is normal"
 		case memoryUsage < 0.85:
-			status = HealthStatusDegraded
+			status = healthStatusDegraded
 			message = "Memory usage is elevated"
 		case memoryUsage < 0.95:
-			status = HealthStatusUnhealthy
+			status = healthStatusUnhealthy
 			message = "Memory usage is high"
 		default:
-			status = HealthStatusCritical
+			status = healthStatusCritical
 			message = "Memory usage is critical"
 		}
 
@@ -310,7 +312,7 @@ func (shm *SystemHealthMonitor) addDefaultHealthChecks() {
 	}).WithCritical(true).WithDescription("Monitors system memory usage")
 
 	// Goroutine health check
-	goroutineCheck := NewHealthCheck("goroutines", func(ctx context.Context) HealthCheckResult {
+	goroutineCheck := NewHealthCheck("goroutines", func(_ context.Context) HealthCheckResult {
 		numGoroutines := runtime.NumGoroutine()
 
 		var status HealthStatus
@@ -318,16 +320,16 @@ func (shm *SystemHealthMonitor) addDefaultHealthChecks() {
 
 		switch {
 		case numGoroutines < 1000:
-			status = HealthStatusHealthy
+			status = healthStatusHealthy
 			message = "Goroutine count is normal"
 		case numGoroutines < 5000:
-			status = HealthStatusDegraded
+			status = healthStatusDegraded
 			message = "Goroutine count is elevated"
 		case numGoroutines < 10000:
-			status = HealthStatusUnhealthy
+			status = healthStatusUnhealthy
 			message = "Goroutine count is high"
 		default:
-			status = HealthStatusCritical
+			status = healthStatusCritical
 			message = "Goroutine count is critical"
 		}
 
@@ -343,10 +345,10 @@ func (shm *SystemHealthMonitor) addDefaultHealthChecks() {
 	}).WithCritical(true).WithDescription("Monitors goroutine count")
 
 	// Disk space health check (placeholder)
-	diskCheck := NewHealthCheck("disk", func(ctx context.Context) HealthCheckResult {
+	diskCheck := NewHealthCheck("disk", func(_ context.Context) HealthCheckResult {
 		// In a real implementation, this would check actual disk usage
 		return HealthCheckResult{
-			Status:  HealthStatusHealthy,
+			Status:  healthStatusHealthy,
 			Message: "Disk space is adequate",
 			Details: map[string]interface{}{
 				"usage": 0.5,
@@ -359,7 +361,7 @@ func (shm *SystemHealthMonitor) addDefaultHealthChecks() {
 	shm.RegisterHealthCheck(diskCheck)
 }
 
-// RegisterHealthCheck registers a health check
+// RegisterHealthCheck registers a health check.
 func (shm *SystemHealthMonitor) RegisterHealthCheck(healthCheck *HealthCheck) {
 	shm.mu.Lock()
 	defer shm.mu.Unlock()
@@ -367,7 +369,7 @@ func (shm *SystemHealthMonitor) RegisterHealthCheck(healthCheck *HealthCheck) {
 	shm.healthChecks[healthCheck.name] = healthCheck
 }
 
-// UnregisterHealthCheck unregisters a health check
+// UnregisterHealthCheck unregisters a health check.
 func (shm *SystemHealthMonitor) UnregisterHealthCheck(name string) {
 	shm.mu.Lock()
 	defer shm.mu.Unlock()
@@ -376,7 +378,7 @@ func (shm *SystemHealthMonitor) UnregisterHealthCheck(name string) {
 	delete(shm.lastResults, name)
 }
 
-// startMonitoring starts the background health monitoring
+// startMonitoring starts the background health monitoring.
 func (shm *SystemHealthMonitor) startMonitoring() {
 	shm.stopWg.Add(1)
 	go func() {
@@ -399,7 +401,7 @@ func (shm *SystemHealthMonitor) startMonitoring() {
 	}()
 }
 
-// runHealthChecks runs all registered health checks
+// runHealthChecks runs all registered health checks.
 func (shm *SystemHealthMonitor) runHealthChecks() {
 	if !shm.enabled {
 		return
@@ -432,7 +434,7 @@ func (shm *SystemHealthMonitor) runHealthChecks() {
 	shm.mu.Lock()
 	defer shm.mu.Unlock()
 
-	overallStatus := HealthStatusHealthy
+	overallStatus := healthStatusHealthy
 	for result := range results {
 		shm.lastResults[result.ComponentName] = result
 
@@ -444,7 +446,7 @@ func (shm *SystemHealthMonitor) runHealthChecks() {
 
 		// Update metrics
 		shm.totalChecks++
-		if result.Error == nil && result.Status == HealthStatusHealthy {
+		if result.Error == nil && result.Status == healthStatusHealthy {
 			shm.successfulChecks++
 		} else {
 			shm.failedChecks++
@@ -452,18 +454,20 @@ func (shm *SystemHealthMonitor) runHealthChecks() {
 
 		// Update average duration
 		if shm.totalChecks > 0 {
+			totalChecksInt := safety.SaturatingInt64(shm.totalChecks)
+			priorChecksInt := safety.SaturatingInt64(shm.totalChecks - 1)
 			shm.avgCheckDuration = time.Duration(
-				(int64(shm.avgCheckDuration)*int64(shm.totalChecks-1) + int64(result.Duration)) / int64(shm.totalChecks),
+				(int64(shm.avgCheckDuration)*priorChecksInt + int64(result.Duration)) / totalChecksInt,
 			)
 		}
 
 		// Determine overall status
-		if result.Status == HealthStatusCritical {
-			overallStatus = HealthStatusCritical
-		} else if result.Status == HealthStatusUnhealthy && overallStatus != HealthStatusCritical {
-			overallStatus = HealthStatusUnhealthy
-		} else if result.Status == HealthStatusDegraded && overallStatus == HealthStatusHealthy {
-			overallStatus = HealthStatusDegraded
+		if result.Status == healthStatusCritical {
+			overallStatus = healthStatusCritical
+		} else if result.Status == healthStatusUnhealthy && overallStatus != healthStatusCritical {
+			overallStatus = healthStatusUnhealthy
+		} else if result.Status == healthStatusDegraded && overallStatus == healthStatusHealthy {
+			overallStatus = healthStatusDegraded
 		}
 
 		// Send alerts for status changes
@@ -473,7 +477,7 @@ func (shm *SystemHealthMonitor) runHealthChecks() {
 	shm.overallStatus = overallStatus
 }
 
-// checkAndSendAlerts checks and sends alerts for status changes
+// checkAndSendAlerts checks and sends alerts for status changes.
 func (shm *SystemHealthMonitor) checkAndSendAlerts(result HealthCheckResult) {
 	// Check if this is a status change
 	if lastResult, exists := shm.lastResults[result.ComponentName]; exists {
@@ -493,30 +497,32 @@ func (shm *SystemHealthMonitor) checkAndSendAlerts(result HealthCheckResult) {
 	}
 }
 
-// getSeverityForStatus maps health status to alert severity
+// getSeverityForStatus maps health status to alert severity.
 func (shm *SystemHealthMonitor) getSeverityForStatus(status HealthStatus) AlertSeverity {
 	switch status {
-	case HealthStatusHealthy:
-		return AlertSeverityInfo
-	case HealthStatusDegraded:
-		return AlertSeverityWarning
-	case HealthStatusUnhealthy:
-		return AlertSeverityError
-	case HealthStatusCritical:
-		return AlertSeverityCritical
-	default:
-		return AlertSeverityInfo
+	case healthStatusUnknown, healthStatusMaintenance:
+		return alertSeverityInfo
+	case healthStatusHealthy:
+		return alertSeverityInfo
+	case healthStatusDegraded:
+		return alertSeverityWarning
+	case healthStatusUnhealthy:
+		return alertSeverityError
+	case healthStatusCritical:
+		return alertSeverityCritical
 	}
+
+	return alertSeverityInfo
 }
 
-// sendAlert sends an alert to all registered handlers
+// sendAlert sends an alert to all registered handlers.
 func (shm *SystemHealthMonitor) sendAlert(alert HealthAlert) {
 	for _, handler := range shm.alertHandlers {
 		go handler.HandleAlert(alert)
 	}
 }
 
-// GetOverallStatus returns the overall system health status
+// GetOverallStatus returns the overall system health status.
 func (shm *SystemHealthMonitor) GetOverallStatus() HealthStatus {
 	shm.mu.RLock()
 	defer shm.mu.RUnlock()
@@ -524,7 +530,7 @@ func (shm *SystemHealthMonitor) GetOverallStatus() HealthStatus {
 	return shm.overallStatus
 }
 
-// GetHealthCheckResults returns the latest health check results
+// GetHealthCheckResults returns the latest health check results.
 func (shm *SystemHealthMonitor) GetHealthCheckResults() map[string]HealthCheckResult {
 	shm.mu.RLock()
 	defer shm.mu.RUnlock()
@@ -537,20 +543,20 @@ func (shm *SystemHealthMonitor) GetHealthCheckResults() map[string]HealthCheckRe
 	return results
 }
 
-// RunHealthCheck runs a specific health check
+// RunHealthCheck runs a specific health check.
 func (shm *SystemHealthMonitor) RunHealthCheck(name string) (HealthCheckResult, error) {
 	shm.mu.RLock()
 	check, exists := shm.healthChecks[name]
 	shm.mu.RUnlock()
 
 	if !exists {
-		return HealthCheckResult{}, ErrHealthServiceUnknown
+		return HealthCheckResult{}, errHealthServiceUnknown
 	}
 
 	return check.Check(context.Background()), nil
 }
 
-// GetHealthCheckHistory returns the health check history
+// GetHealthCheckHistory returns the health check history.
 func (shm *SystemHealthMonitor) GetHealthCheckHistory() []HealthCheckResult {
 	shm.mu.RLock()
 	defer shm.mu.RUnlock()
@@ -561,7 +567,7 @@ func (shm *SystemHealthMonitor) GetHealthCheckHistory() []HealthCheckResult {
 	return history
 }
 
-// HealthMetrics contains health monitoring metrics
+// HealthMetrics contains health monitoring metrics.
 type HealthMetrics struct {
 	TotalChecks      uint64
 	SuccessfulChecks uint64
@@ -573,7 +579,7 @@ type HealthMetrics struct {
 	LastCheckTime    time.Time
 }
 
-// GetHealthMetrics returns health monitoring metrics
+// GetHealthMetrics returns health monitoring metrics.
 func (shm *SystemHealthMonitor) GetHealthMetrics() HealthMetrics {
 	shm.mu.RLock()
 	defer shm.mu.RUnlock()
@@ -600,7 +606,7 @@ func (shm *SystemHealthMonitor) GetHealthMetrics() HealthMetrics {
 	}
 }
 
-// Enable enables health monitoring
+// Enable enables health monitoring.
 func (shm *SystemHealthMonitor) Enable() {
 	shm.mu.Lock()
 	defer shm.mu.Unlock()
@@ -611,7 +617,7 @@ func (shm *SystemHealthMonitor) Enable() {
 	}
 }
 
-// Disable disables health monitoring
+// Disable disables health monitoring.
 func (shm *SystemHealthMonitor) Disable() {
 	shm.mu.Lock()
 	defer shm.mu.Unlock()
@@ -619,7 +625,7 @@ func (shm *SystemHealthMonitor) Disable() {
 	shm.enabled = false
 }
 
-// IsEnabled returns whether health monitoring is enabled
+// IsEnabled returns whether health monitoring is enabled.
 func (shm *SystemHealthMonitor) IsEnabled() bool {
 	shm.mu.RLock()
 	defer shm.mu.RUnlock()
@@ -627,7 +633,7 @@ func (shm *SystemHealthMonitor) IsEnabled() bool {
 	return shm.enabled
 }
 
-// AddAlertHandler adds an alert handler
+// AddAlertHandler adds an alert handler.
 func (shm *SystemHealthMonitor) AddAlertHandler(handler AlertHandler) {
 	shm.mu.Lock()
 	defer shm.mu.Unlock()
@@ -635,7 +641,7 @@ func (shm *SystemHealthMonitor) AddAlertHandler(handler AlertHandler) {
 	shm.alertHandlers = append(shm.alertHandlers, handler)
 }
 
-// Shutdown shuts down the health monitor
+// Shutdown shuts down the health monitor.
 func (shm *SystemHealthMonitor) Shutdown(ctx context.Context) error {
 	close(shm.stopCh)
 
@@ -650,23 +656,23 @@ func (shm *SystemHealthMonitor) Shutdown(ctx context.Context) error {
 	case <-done:
 		return nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("health monitor shutdown cancelled: %w", ctx.Err())
 	}
 }
 
 // Built-in Alert Handlers
 
-// LogAlertHandler logs alerts
+// LogAlertHandler logs alerts.
 type LogAlertHandler struct {
 	logger func(message string)
 }
 
-// NewLogAlertHandler creates a new log alert handler
+// NewLogAlertHandler creates a new log alert handler.
 func NewLogAlertHandler(logger func(message string)) *LogAlertHandler {
 	return &LogAlertHandler{logger: logger}
 }
 
-// HandleAlert handles an alert by logging it
+// HandleAlert handles an alert by logging it.
 func (h *LogAlertHandler) HandleAlert(alert HealthAlert) {
 	message := fmt.Sprintf("Health Alert: %s - %s (%s) - %s",
 		alert.ComponentName,
@@ -679,13 +685,13 @@ func (h *LogAlertHandler) HandleAlert(alert HealthAlert) {
 	}
 }
 
-// EmailAlertHandler sends email alerts (placeholder)
+// EmailAlertHandler sends email alerts (placeholder).
 type EmailAlertHandler struct {
 	recipients []string
 	sender     func(to []string, subject, body string) error
 }
 
-// NewEmailAlertHandler creates a new email alert handler
+// NewEmailAlertHandler creates a new email alert handler.
 func NewEmailAlertHandler(recipients []string, sender func(to []string, subject, body string) error) *EmailAlertHandler {
 	return &EmailAlertHandler{
 		recipients: recipients,
@@ -693,7 +699,7 @@ func NewEmailAlertHandler(recipients []string, sender func(to []string, subject,
 	}
 }
 
-// HandleAlert handles an alert by sending an email
+// HandleAlert handles an alert by sending an email.
 func (h *EmailAlertHandler) HandleAlert(alert HealthAlert) {
 	if h.sender == nil {
 		return
@@ -707,16 +713,20 @@ func (h *EmailAlertHandler) HandleAlert(alert HealthAlert) {
 		alert.Message,
 		alert.Timestamp.Format(time.RFC3339))
 
-	go h.sender(h.recipients, subject, body)
+	go func() {
+		if err := h.sender(h.recipients, subject, body); err != nil {
+			log.Printf("email alert dispatch failed: %v", err)
+		}
+	}()
 }
 
-// WebhookAlertHandler sends webhook alerts (placeholder)
+// WebhookAlertHandler sends webhook alerts (placeholder).
 type WebhookAlertHandler struct {
 	url    string
 	sender func(url string, payload interface{}) error
 }
 
-// NewWebhookAlertHandler creates a new webhook alert handler
+// NewWebhookAlertHandler creates a new webhook alert handler.
 func NewWebhookAlertHandler(url string, sender func(url string, payload interface{}) error) *WebhookAlertHandler {
 	return &WebhookAlertHandler{
 		url:    url,
@@ -724,7 +734,7 @@ func NewWebhookAlertHandler(url string, sender func(url string, payload interfac
 	}
 }
 
-// HandleAlert handles an alert by sending a webhook
+// HandleAlert handles an alert by sending a webhook.
 func (h *WebhookAlertHandler) HandleAlert(alert HealthAlert) {
 	if h.sender == nil {
 		return
@@ -739,12 +749,16 @@ func (h *WebhookAlertHandler) HandleAlert(alert HealthAlert) {
 		"details":   alert.Details,
 	}
 
-	go h.sender(h.url, payload)
+	go func() {
+		if err := h.sender(h.url, payload); err != nil {
+			log.Printf("webhook alert dispatch failed: %v", err)
+		}
+	}()
 }
 
 // Diagnostic System
 
-// DiagnosticCollector collects diagnostic information
+// DiagnosticCollector collects diagnostic information.
 type DiagnosticCollector struct {
 	mu                 sync.RWMutex
 	diagnostics        map[string]DiagnosticData
@@ -754,7 +768,7 @@ type DiagnosticCollector struct {
 	stopWg             sync.WaitGroup
 }
 
-// DiagnosticData represents diagnostic information
+// DiagnosticData represents diagnostic information.
 type DiagnosticData struct {
 	Name      string
 	Category  string
@@ -762,7 +776,7 @@ type DiagnosticData struct {
 	Timestamp time.Time
 }
 
-// NewDiagnosticCollector creates a new diagnostic collector
+// NewDiagnosticCollector creates a new diagnostic collector.
 func NewDiagnosticCollector(interval time.Duration) *DiagnosticCollector {
 	dc := &DiagnosticCollector{
 		diagnostics:        make(map[string]DiagnosticData),
@@ -779,7 +793,7 @@ func NewDiagnosticCollector(interval time.Duration) *DiagnosticCollector {
 	return dc
 }
 
-// addDefaultCollectors adds default diagnostic collectors
+// addDefaultCollectors adds default diagnostic collectors.
 func (dc *DiagnosticCollector) addDefaultCollectors() {
 	// Runtime diagnostics
 	dc.AddCollector(func() DiagnosticData {
@@ -824,7 +838,7 @@ func (dc *DiagnosticCollector) addDefaultCollectors() {
 	})
 }
 
-// AddCollector adds a diagnostic collector
+// AddCollector adds a diagnostic collector.
 func (dc *DiagnosticCollector) AddCollector(collector func() DiagnosticData) {
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
@@ -832,7 +846,7 @@ func (dc *DiagnosticCollector) AddCollector(collector func() DiagnosticData) {
 	dc.collectors = append(dc.collectors, collector)
 }
 
-// startCollection starts the diagnostic collection loop
+// startCollection starts the diagnostic collection loop.
 func (dc *DiagnosticCollector) startCollection() {
 	dc.stopWg.Add(1)
 	go func() {
@@ -855,7 +869,7 @@ func (dc *DiagnosticCollector) startCollection() {
 	}()
 }
 
-// collectDiagnostics collects diagnostic information
+// collectDiagnostics collects diagnostic information.
 func (dc *DiagnosticCollector) collectDiagnostics() {
 	dc.mu.RLock()
 	collectors := make([]func() DiagnosticData, len(dc.collectors))
@@ -871,7 +885,7 @@ func (dc *DiagnosticCollector) collectDiagnostics() {
 	}
 }
 
-// GetDiagnostics returns all collected diagnostics
+// GetDiagnostics returns all collected diagnostics.
 func (dc *DiagnosticCollector) GetDiagnostics() map[string]DiagnosticData {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
@@ -884,7 +898,7 @@ func (dc *DiagnosticCollector) GetDiagnostics() map[string]DiagnosticData {
 	return diagnostics
 }
 
-// GetDiagnostic returns a specific diagnostic
+// GetDiagnostic returns a specific diagnostic.
 func (dc *DiagnosticCollector) GetDiagnostic(name string) (DiagnosticData, bool) {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
@@ -893,7 +907,7 @@ func (dc *DiagnosticCollector) GetDiagnostic(name string) (DiagnosticData, bool)
 	return data, exists
 }
 
-// Shutdown shuts down the diagnostic collector
+// Shutdown shuts down the diagnostic collector.
 func (dc *DiagnosticCollector) Shutdown() {
 	close(dc.stopCh)
 	dc.stopWg.Wait()

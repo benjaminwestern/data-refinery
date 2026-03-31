@@ -1,3 +1,4 @@
+// Package search evaluates configured duplicate and match targets against JSON rows.
 package search
 
 import (
@@ -11,8 +12,8 @@ import (
 	"github.com/benjaminwestern/data-refinery/internal/report"
 )
 
-// SearchEngine manages multiple search targets and their matchers
-type SearchEngine struct {
+// Engine manages multiple search targets and their matchers.
+type Engine struct {
 	targets       map[string]config.SearchTarget
 	matchers      map[string]Matcher
 	results       map[string][]MatchResult
@@ -20,12 +21,12 @@ type SearchEngine struct {
 	mutex         sync.RWMutex
 }
 
-// Matcher interface for different search implementations
+// Matcher interface for different search implementations.
 type Matcher interface {
 	Match(data report.JSONData, target config.SearchTarget) []MatchResult
 }
 
-// MatchResult represents a single match found in the data
+// MatchResult represents a single match found in the data.
 type MatchResult struct {
 	Found        bool
 	Path         string
@@ -35,22 +36,22 @@ type MatchResult struct {
 	Target       string
 }
 
-// SearchResults contains all matches organized by target
-type SearchResults struct {
+// Results contains all matches organized by target.
+type Results struct {
 	Results map[string][]MatchResult `json:"results"`
-	Summary SearchSummary            `json:"summary"`
+	Summary Summary                  `json:"summary"`
 }
 
-// SearchSummary provides aggregate statistics
-type SearchSummary struct {
+// Summary provides aggregate statistics.
+type Summary struct {
 	TotalMatches    int            `json:"totalMatches"`
 	MatchesByTarget map[string]int `json:"matchesByTarget"`
 	ProcessedRows   int64          `json:"processedRows"`
 }
 
-// NewSearchEngine creates a new search engine with configured targets
-func NewSearchEngine(targets []config.SearchTarget) (*SearchEngine, error) {
-	engine := &SearchEngine{
+// NewSearchEngine creates a new search engine with configured targets.
+func NewSearchEngine(targets []config.SearchTarget) (*Engine, error) {
+	engine := &Engine{
 		targets:  make(map[string]config.SearchTarget),
 		matchers: make(map[string]Matcher),
 		results:  make(map[string][]MatchResult),
@@ -71,24 +72,24 @@ func NewSearchEngine(targets []config.SearchTarget) (*SearchEngine, error) {
 	return engine, nil
 }
 
-// createMatcher creates the appropriate matcher for a given type
+// createMatcher creates the appropriate matcher for a given type.
 func createMatcher(matcherType string) (Matcher, error) {
 	switch matcherType {
 	case "direct":
-		return &DirectMatcher{}, nil
+		return &directMatcher{}, nil
 	case "nested_array":
-		return &NestedArrayMatcher{}, nil
+		return &nestedArrayMatcher{}, nil
 	case "nested_object":
-		return &NestedObjectMatcher{}, nil
+		return &nestedObjectMatcher{}, nil
 	case "jsonpath":
-		return &JSONPathMatcher{}, nil
+		return &jsonPathMatcher{}, nil
 	default:
 		return nil, fmt.Errorf("unknown matcher type: %s", matcherType)
 	}
 }
 
-// Search processes a row of data against all configured targets
-func (se *SearchEngine) Search(data report.JSONData, location report.LocationInfo) {
+// Search processes a row of data against all configured targets.
+func (se *Engine) Search(data report.JSONData, location report.LocationInfo) {
 	matchesByTarget := se.MatchRow(data, location)
 
 	se.mutex.Lock()
@@ -101,7 +102,7 @@ func (se *SearchEngine) Search(data report.JSONData, location report.LocationInf
 }
 
 // MatchRow returns matches for a single row without mutating accumulated results.
-func (se *SearchEngine) MatchRow(data report.JSONData, location report.LocationInfo) map[string][]MatchResult {
+func (se *Engine) MatchRow(data report.JSONData, location report.LocationInfo) map[string][]MatchResult {
 	se.mutex.RLock()
 	defer se.mutex.RUnlock()
 
@@ -125,8 +126,8 @@ func (se *SearchEngine) MatchRow(data report.JSONData, location report.LocationI
 	return resultsByTarget
 }
 
-// GetResults returns all search results
-func (se *SearchEngine) GetResults() SearchResults {
+// GetResults returns all search results.
+func (se *Engine) GetResults() Results {
 	se.mutex.RLock()
 	defer se.mutex.RUnlock()
 
@@ -139,9 +140,9 @@ func (se *SearchEngine) GetResults() SearchResults {
 		matchesByTarget[targetName] = matchCount
 	}
 
-	return SearchResults{
+	return Results{
 		Results: se.results,
-		Summary: SearchSummary{
+		Summary: Summary{
 			TotalMatches:    totalMatches,
 			MatchesByTarget: matchesByTarget,
 			ProcessedRows:   se.processedRows,
@@ -149,8 +150,8 @@ func (se *SearchEngine) GetResults() SearchResults {
 	}
 }
 
-// GetResultsForTarget returns results for a specific target
-func (se *SearchEngine) GetResultsForTarget(targetName string) []MatchResult {
+// GetResultsForTarget returns results for a specific target.
+func (se *Engine) GetResultsForTarget(targetName string) []MatchResult {
 	se.mutex.RLock()
 	defer se.mutex.RUnlock()
 
@@ -160,8 +161,8 @@ func (se *SearchEngine) GetResultsForTarget(targetName string) []MatchResult {
 	return nil
 }
 
-// ClearResults clears all search results
-func (se *SearchEngine) ClearResults() {
+// ClearResults clears all search results.
+func (se *Engine) ClearResults() {
 	se.mutex.Lock()
 	defer se.mutex.Unlock()
 
@@ -171,10 +172,10 @@ func (se *SearchEngine) ClearResults() {
 	se.processedRows = 0
 }
 
-// DirectMatcher implements simple key-value matching
-type DirectMatcher struct{}
+// directMatcher implements simple key-value matching.
+type directMatcher struct{}
 
-func (dm *DirectMatcher) Match(data report.JSONData, target config.SearchTarget) []MatchResult {
+func (dm *directMatcher) Match(data report.JSONData, target config.SearchTarget) []MatchResult {
 	var results []MatchResult
 
 	value, exists := data[target.Path]
@@ -198,7 +199,7 @@ func (dm *DirectMatcher) Match(data report.JSONData, target config.SearchTarget)
 	return results
 }
 
-func (dm *DirectMatcher) matchValue(actual, target string, caseSensitive bool) bool {
+func (dm *directMatcher) matchValue(actual, target string, caseSensitive bool) bool {
 	if !caseSensitive {
 		actual = strings.ToLower(actual)
 		target = strings.ToLower(target)
@@ -206,10 +207,10 @@ func (dm *DirectMatcher) matchValue(actual, target string, caseSensitive bool) b
 	return actual == target
 }
 
-// NestedArrayMatcher implements searching within arrays
-type NestedArrayMatcher struct{}
+// nestedArrayMatcher implements searching within arrays.
+type nestedArrayMatcher struct{}
 
-func (nam *NestedArrayMatcher) Match(data report.JSONData, target config.SearchTarget) []MatchResult {
+func (nam *nestedArrayMatcher) Match(data report.JSONData, target config.SearchTarget) []MatchResult {
 	var results []MatchResult
 
 	// Parse path like "line-items[*].line-item-id"
@@ -220,9 +221,7 @@ func (nam *NestedArrayMatcher) Match(data report.JSONData, target config.SearchT
 
 	// Get the array field
 	arrayField := pathParts[0]
-	if strings.HasSuffix(arrayField, "[*]") {
-		arrayField = strings.TrimSuffix(arrayField, "[*]")
-	}
+	arrayField = strings.TrimSuffix(arrayField, "[*]")
 
 	arrayValue, exists := data[arrayField]
 	if !exists {
@@ -252,7 +251,7 @@ func (nam *NestedArrayMatcher) Match(data report.JSONData, target config.SearchT
 	return results
 }
 
-func (nam *NestedArrayMatcher) searchInObject(obj map[string]any, path string, targetValues []string, caseSensitive bool) []MatchResult {
+func (nam *nestedArrayMatcher) searchInObject(obj map[string]any, path string, targetValues []string, caseSensitive bool) []MatchResult {
 	var results []MatchResult
 
 	value, exists := obj[path]
@@ -276,7 +275,7 @@ func (nam *NestedArrayMatcher) searchInObject(obj map[string]any, path string, t
 	return results
 }
 
-func (nam *NestedArrayMatcher) matchValue(actual, target string, caseSensitive bool) bool {
+func (nam *nestedArrayMatcher) matchValue(actual, target string, caseSensitive bool) bool {
 	if !caseSensitive {
 		actual = strings.ToLower(actual)
 		target = strings.ToLower(target)
@@ -284,10 +283,10 @@ func (nam *NestedArrayMatcher) matchValue(actual, target string, caseSensitive b
 	return actual == target
 }
 
-// NestedObjectMatcher implements deep object traversal
-type NestedObjectMatcher struct{}
+// nestedObjectMatcher implements deep object traversal.
+type nestedObjectMatcher struct{}
 
-func (nom *NestedObjectMatcher) Match(data report.JSONData, target config.SearchTarget) []MatchResult {
+func (nom *nestedObjectMatcher) Match(data report.JSONData, target config.SearchTarget) []MatchResult {
 	var results []MatchResult
 
 	// Navigate to the nested object using dot notation
@@ -335,7 +334,7 @@ func (nom *NestedObjectMatcher) Match(data report.JSONData, target config.Search
 	return results
 }
 
-func (nom *NestedObjectMatcher) matchValue(actual, target string, caseSensitive bool) bool {
+func (nom *nestedObjectMatcher) matchValue(actual, target string, caseSensitive bool) bool {
 	if !caseSensitive {
 		actual = strings.ToLower(actual)
 		target = strings.ToLower(target)
@@ -343,10 +342,10 @@ func (nom *NestedObjectMatcher) matchValue(actual, target string, caseSensitive 
 	return actual == target
 }
 
-// JSONPathMatcher implements JSONPath-like queries (simplified)
-type JSONPathMatcher struct{}
+// jsonPathMatcher implements JSONPath-like queries (simplified).
+type jsonPathMatcher struct{}
 
-func (jpm *JSONPathMatcher) Match(data report.JSONData, target config.SearchTarget) []MatchResult {
+func (jpm *jsonPathMatcher) Match(data report.JSONData, target config.SearchTarget) []MatchResult {
 	var results []MatchResult
 
 	// This is a simplified JSONPath implementation
@@ -376,21 +375,17 @@ type pathResult struct {
 	Value any
 }
 
-func (jpm *JSONPathMatcher) evaluateJSONPath(data report.JSONData, jsonPath string) []pathResult {
-	var results []pathResult
-
+func (jpm *jsonPathMatcher) evaluateJSONPath(data report.JSONData, jsonPath string) []pathResult {
 	// Simple JSONPath evaluation - supports basic dot notation and wildcards
 	if strings.Contains(jsonPath, "*") {
-		results = jpm.evaluateWildcardPath(data, jsonPath, "")
-	} else {
-		results = jpm.evaluateSimplePath(data, jsonPath)
+		return jpm.evaluateWildcardPath(data, jsonPath, "")
 	}
 
-	return results
+	return jpm.evaluateSimplePath(data, jsonPath)
 }
 
-func (jpm *JSONPathMatcher) evaluateSimplePath(data report.JSONData, path string) []pathResult {
-	var results []pathResult
+func (jpm *jsonPathMatcher) evaluateSimplePath(data report.JSONData, path string) []pathResult {
+	results := make([]pathResult, 0, 1)
 
 	parts := strings.Split(path, ".")
 	current := any(data)
@@ -423,7 +418,7 @@ func (jpm *JSONPathMatcher) evaluateSimplePath(data report.JSONData, path string
 	return results
 }
 
-func (jpm *JSONPathMatcher) evaluateWildcardPath(data report.JSONData, path string, prefix string) []pathResult {
+func (jpm *jsonPathMatcher) evaluateWildcardPath(data report.JSONData, path string, prefix string) []pathResult {
 	var results []pathResult
 
 	// This is a simplified wildcard implementation
@@ -454,85 +449,71 @@ func (jpm *JSONPathMatcher) evaluateWildcardPath(data report.JSONData, path stri
 	return results
 }
 
-func (jpm *JSONPathMatcher) evaluatePathParts(data any, parts []string, prefix string, index int) []pathResult {
-	var results []pathResult
-
+func (jpm *jsonPathMatcher) evaluatePathParts(data any, parts []string, prefix string, index int) []pathResult {
 	if index >= len(parts) {
-		return results
+		return nil
+	}
+
+	dataMap, ok := pathDataMap(data)
+	if !ok {
+		return nil
 	}
 
 	part := parts[index]
-
 	if part == "*" {
-		// Wildcard - iterate through all keys
-		var dataMap map[string]any
-		var ok bool
-
-		// Try to cast to map[string]any or report.JSONData
-		if dataMap, ok = data.(map[string]any); !ok {
-			if jsonData, ok := data.(report.JSONData); ok {
-				dataMap = jsonData
-			} else {
-				return results // Not a map
-			}
-		}
-
-		for key, value := range dataMap {
-			newPrefix := key
-			if prefix != "" {
-				newPrefix = prefix + "." + key
-			}
-
-			if index == len(parts)-1 {
-				// Last part - add result
-				results = append(results, pathResult{
-					Path:  newPrefix,
-					Value: value,
-				})
-			} else {
-				// More parts to process
-				subResults := jpm.evaluatePathParts(value, parts, newPrefix, index+1)
-				results = append(results, subResults...)
-			}
-		}
-	} else {
-		// Specific key
-		var dataMap map[string]any
-		var ok bool
-
-		// Try to cast to map[string]any or report.JSONData
-		if dataMap, ok = data.(map[string]any); !ok {
-			if jsonData, ok := data.(report.JSONData); ok {
-				dataMap = jsonData
-			} else {
-				return results // Not a map
-			}
-		}
-
-		if value, exists := dataMap[part]; exists {
-			newPrefix := part
-			if prefix != "" {
-				newPrefix = prefix + "." + part
-			}
-
-			if index == len(parts)-1 {
-				// Last part - add result
-				results = append(results, pathResult{
-					Path:  newPrefix,
-					Value: value,
-				})
-			} else {
-				// More parts to process
-				subResults := jpm.evaluatePathParts(value, parts, newPrefix, index+1)
-				results = append(results, subResults...)
-			}
-		}
+		return jpm.evaluateWildcardPathParts(dataMap, parts, prefix, index)
 	}
 
+	return jpm.evaluateSpecificPathPart(dataMap, part, parts, prefix, index)
+}
+
+func pathDataMap(data any) (map[string]any, bool) {
+	if dataMap, ok := data.(map[string]any); ok {
+		return dataMap, true
+	}
+
+	jsonData, ok := data.(report.JSONData)
+	if !ok {
+		return nil, false
+	}
+
+	return jsonData, true
+}
+
+func (jpm *jsonPathMatcher) evaluateWildcardPathParts(dataMap map[string]any, parts []string, prefix string, index int) []pathResult {
+	results := make([]pathResult, 0, len(dataMap))
+	for key, value := range dataMap {
+		results = append(results, jpm.evaluateNextPathPart(key, value, parts, prefix, index)...)
+	}
 	return results
 }
 
-func (jpm *JSONPathMatcher) matchValue(actual, target string, caseSensitive bool) bool {
+func (jpm *jsonPathMatcher) evaluateSpecificPathPart(dataMap map[string]any, part string, parts []string, prefix string, index int) []pathResult {
+	value, exists := dataMap[part]
+	if !exists {
+		return nil
+	}
+
+	return jpm.evaluateNextPathPart(part, value, parts, prefix, index)
+}
+
+func (jpm *jsonPathMatcher) evaluateNextPathPart(key string, value any, parts []string, prefix string, index int) []pathResult {
+	newPrefix := key
+	if prefix != "" {
+		newPrefix = prefix + "." + key
+	}
+
+	if index == len(parts)-1 {
+		return []pathResult{{
+			Path:  newPrefix,
+			Value: value,
+		}}
+	}
+
+	return jpm.evaluatePathParts(value, parts, newPrefix, index+1)
+}
+
+func (jpm *jsonPathMatcher) matchValue(actual, target string, caseSensitive bool) bool {
 	if !caseSensitive {
 		actual = strings.ToLower(actual)
 		target = strings.ToLower(target)
@@ -540,10 +521,10 @@ func (jpm *JSONPathMatcher) matchValue(actual, target string, caseSensitive bool
 	return actual == target
 }
 
-// UtilityMatcher provides additional utility functions
+// UtilityMatcher provides additional utility functions.
 type UtilityMatcher struct{}
 
-// MatchRegex performs regex matching
+// MatchRegex performs regex matching.
 func (um *UtilityMatcher) MatchRegex(value string, pattern string, caseSensitive bool) (bool, error) {
 	flags := ""
 	if !caseSensitive {
@@ -552,13 +533,13 @@ func (um *UtilityMatcher) MatchRegex(value string, pattern string, caseSensitive
 
 	regex, err := regexp.Compile(flags + pattern)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("compile regex pattern %q: %w", pattern, err)
 	}
 
 	return regex.MatchString(value), nil
 }
 
-// MatchContains performs substring matching
+// MatchContains performs substring matching.
 func (um *UtilityMatcher) MatchContains(value string, substring string, caseSensitive bool) bool {
 	if !caseSensitive {
 		value = strings.ToLower(value)
@@ -568,7 +549,7 @@ func (um *UtilityMatcher) MatchContains(value string, substring string, caseSens
 	return strings.Contains(value, substring)
 }
 
-// MatchType checks if a value is of a specific type
+// MatchType checks if a value is of a specific type.
 func (um *UtilityMatcher) MatchType(value any, expectedType string) bool {
 	actualType := reflect.TypeOf(value)
 	if actualType == nil {

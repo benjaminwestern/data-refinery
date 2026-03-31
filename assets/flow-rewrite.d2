@@ -1,0 +1,40 @@
+direction: right
+
+classes: {
+  stage: {
+    style.fill: "#FBF7F0"
+    style.stroke: "#2A2A33"
+    style.stroke-width: 1
+  }
+  action: {
+    style.fill: "#C29A3A"
+    style.stroke: "#2A2A33"
+    style.stroke-width: 1
+  }
+  decision: {
+    shape: diamond
+    style.fill: "#F9EB00"
+    style.stroke: "#2A2A33"
+    style.stroke-width: 1
+  }
+  output: {
+    style.fill: "#9F4A3F"
+    style.stroke: "#2A2A33"
+    style.stroke-width: 1
+    style.font-color: "#FFF9F1"
+  }
+}
+
+Paths: {class: stage; label: "Resolve JSON-family paths"}
+Rules: {class: action; label: "Load delete or update rules"}
+Preview: {class: decision; label: "Mode"}
+Stream: {class: action; label: "Stream records and apply rules"}
+Summary: {class: output; label: "Preview summary and log"}
+Backups: {class: output; label: "Create backups and commit changes"}
+
+Paths -> Rules
+Rules -> Preview
+Preview -> Stream: "preview"
+Preview -> Stream: "apply"
+Stream -> Summary: "preview"
+Stream -> Backups: "apply"

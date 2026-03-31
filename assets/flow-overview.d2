@@ -1,0 +1,39 @@
+direction: right
+
+classes: {
+  input: {
+    style.fill: "#FBF7F0"
+    style.stroke: "#D6C7B3"
+    style.stroke-width: 1
+  }
+  workflow: {
+    style.fill: "#9FA7D0"
+    style.stroke: "#2A2A33"
+    style.stroke-width: 1
+  }
+  output: {
+    style.fill: "#C8643B"
+    style.stroke: "#2A2A33"
+    style.stroke-width: 1
+    style.font-color: "#FFF9F1"
+  }
+}
+
+Sources: {class: input; label: "Local files or gs:// URIs"}
+Mappings: {class: input; label: "Portable config and mappings"}
+Ingest: {class: workflow; label: "Ingest workflow"}
+Analysis: {class: workflow; label: "Analysis workflow"}
+Rewrite: {class: workflow; label: "Rewrite workflow"}
+Unified: {class: output; label: "Unified csv / json / ndjson / jsonl"}
+Reports: {class: output; label: "Reports, schema, search, summaries"}
+Backups: {class: output; label: "Preview summary or apply with backups"}
+
+Sources -> Ingest: "CSV | TSV | XLSX | JSON | NDJSON | JSONL"
+Mappings -> Ingest: "normalisation rules"
+Ingest -> Unified: "write output"
+Unified -> Analysis: "inspect and validate"
+Sources -> Analysis: "JSON-family inputs"
+Analysis -> Reports: "stdout and saved artifacts"
+Unified -> Rewrite: "safe cleanup target"
+Sources -> Rewrite: "JSON-family inputs"
+Rewrite -> Backups: "preview or apply"

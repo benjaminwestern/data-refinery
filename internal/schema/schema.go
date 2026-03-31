@@ -1,10 +1,10 @@
+// Package schema discovers field structure and emits schema reports.
 package schema
 
 import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -15,11 +15,18 @@ import (
 
 	"github.com/benjaminwestern/data-refinery/internal/config"
 	"github.com/benjaminwestern/data-refinery/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/safety"
 	"gopkg.in/yaml.v3"
 )
 
-// SchemaAnalyzer handles schema discovery and analysis
-type SchemaAnalyzer struct {
+const (
+	fieldTypeNull   = "null"
+	fieldTypeMixed  = "mixed"
+	fieldTypeObject = "object"
+)
+
+// Analyzer handles schema discovery and analysis.
+type Analyzer struct {
 	config        config.SchemaDiscoveryConfig
 	globalSchema  *Schema
 	folderSchemas map[string]*Schema
@@ -28,14 +35,14 @@ type SchemaAnalyzer struct {
 	mutex         sync.RWMutex
 }
 
-// Schema represents the discovered schema structure
+// Schema represents the discovered schema structure.
 type Schema struct {
 	Fields       map[string]*FieldSchema `json:"fields"`
 	TotalSamples int64                   `json:"totalSamples"`
 	mutex        sync.RWMutex
 }
 
-// FieldSchema contains metadata about a field
+// FieldSchema contains metadata about a field.
 type FieldSchema struct {
 	Path             string                  `json:"path"`
 	Type             string                  `json:"type"`
@@ -52,8 +59,8 @@ type FieldSchema struct {
 	mutex            sync.RWMutex
 }
 
-// SchemaReport contains the complete schema analysis results
-type SchemaReport struct {
+// Report contains the complete schema analysis results.
+type Report struct {
 	GlobalSchema  *Schema            `json:"globalSchema"`
 	FolderSchemas map[string]*Schema `json:"folderSchemas,omitempty"`
 	TotalRows     int64              `json:"totalRows"`
@@ -61,23 +68,23 @@ type SchemaReport struct {
 	SampleRate    float64            `json:"sampleRate"`
 }
 
-// NewSchemaAnalyzer creates a new schema analyzer
-func NewSchemaAnalyzer(config config.SchemaDiscoveryConfig) *SchemaAnalyzer {
-	return &SchemaAnalyzer{
+// NewSchemaAnalyzer creates a new schema analyzer.
+func NewSchemaAnalyzer(config config.SchemaDiscoveryConfig) *Analyzer {
+	return &Analyzer{
 		config:        config,
 		globalSchema:  newSchema(),
 		folderSchemas: make(map[string]*Schema),
 	}
 }
 
-// newSchema creates a new schema instance
+// newSchema creates a new schema instance.
 func newSchema() *Schema {
 	return &Schema{
 		Fields: make(map[string]*FieldSchema),
 	}
 }
 
-// newFieldSchema creates a new field schema instance
+// newFieldSchema creates a new field schema instance.
 func newFieldSchema(path string) *FieldSchema {
 	return &FieldSchema{
 		Path:         path,
@@ -87,8 +94,8 @@ func newFieldSchema(path string) *FieldSchema {
 	}
 }
 
-// AnalyzeRow processes a single row for schema discovery
-func (sa *SchemaAnalyzer) AnalyzeRow(data report.JSONData, filePath string) {
+// AnalyzeRow processes a single row for schema discovery.
+func (sa *Analyzer) AnalyzeRow(data report.JSONData, filePath string) {
 	sa.mutex.Lock()
 	sa.totalRows++
 	shouldSample := sa.shouldSample()
@@ -124,16 +131,16 @@ func schemaFolderFromPath(filePath string) string {
 	return filepath.Dir(filePath)
 }
 
-// shouldSample determines if this row should be sampled
-func (sa *SchemaAnalyzer) shouldSample() bool {
+// shouldSample determines if this row should be sampled.
+func (sa *Analyzer) shouldSample() bool {
 	if sa.sampledRows >= int64(sa.config.MaxSamples) {
 		return false
 	}
-	return rand.Float64() < sa.config.SamplePercent
+	return safety.RandomFloat64() < sa.config.SamplePercent
 }
 
-// ensureFolderSchema gets or creates a schema for a folder
-func (sa *SchemaAnalyzer) ensureFolderSchema(folder string) *Schema {
+// ensureFolderSchema gets or creates a schema for a folder.
+func (sa *Analyzer) ensureFolderSchema(folder string) *Schema {
 	sa.mutex.Lock()
 	defer sa.mutex.Unlock()
 
@@ -146,8 +153,8 @@ func (sa *SchemaAnalyzer) ensureFolderSchema(folder string) *Schema {
 	return schema
 }
 
-// analyzeFields recursively analyzes fields in the data
-func (sa *SchemaAnalyzer) analyzeFields(data report.JSONData, schema *Schema, prefix string, depth int) {
+// analyzeFields recursively analyzes fields in the data.
+func (sa *Analyzer) analyzeFields(data report.JSONData, schema *Schema, prefix string, depth int) {
 	if depth > sa.config.MaxDepth {
 		return
 	}
@@ -163,16 +170,16 @@ func (sa *SchemaAnalyzer) analyzeFields(data report.JSONData, schema *Schema, pr
 	}
 }
 
-// buildPath constructs the full path for nested fields
-func (sa *SchemaAnalyzer) buildPath(prefix, key string) string {
+// buildPath constructs the full path for nested fields.
+func (sa *Analyzer) buildPath(prefix, key string) string {
 	if prefix == "" {
 		return key
 	}
 	return fmt.Sprintf("%s.%s", prefix, key)
 }
 
-// ensureFieldSchema gets or creates a field schema
-func (sa *SchemaAnalyzer) ensureFieldSchema(schema *Schema, path string) *FieldSchema {
+// ensureFieldSchema gets or creates a field schema.
+func (sa *Analyzer) ensureFieldSchema(schema *Schema, path string) *FieldSchema {
 	schema.mutex.Lock()
 	defer schema.mutex.Unlock()
 
@@ -185,8 +192,8 @@ func (sa *SchemaAnalyzer) ensureFieldSchema(schema *Schema, path string) *FieldS
 	return field
 }
 
-// updateFieldSchema updates a field schema with new data
-func (sa *SchemaAnalyzer) updateFieldSchema(field *FieldSchema, value any, depth int) {
+// updateFieldSchema updates a field schema with new data.
+func (sa *Analyzer) updateFieldSchema(field *FieldSchema, value any, depth int) {
 	field.mutex.Lock()
 	defer field.mutex.Unlock()
 
@@ -196,9 +203,9 @@ func (sa *SchemaAnalyzer) updateFieldSchema(field *FieldSchema, value any, depth
 	if value == nil {
 		field.IsNullable = true
 		if field.Type == "" {
-			field.Type = "null"
-		} else if field.Type != "null" && field.Type != "mixed" {
-			field.Type = "mixed"
+			field.Type = fieldTypeNull
+		} else if field.Type != fieldTypeNull && field.Type != fieldTypeMixed {
+			field.Type = fieldTypeMixed
 		}
 		return
 	}
@@ -207,8 +214,8 @@ func (sa *SchemaAnalyzer) updateFieldSchema(field *FieldSchema, value any, depth
 	valueType := sa.getValueType(value)
 	if field.Type == "" {
 		field.Type = valueType
-	} else if field.Type != valueType && field.Type != "mixed" {
-		field.Type = "mixed"
+	} else if field.Type != valueType && field.Type != fieldTypeMixed {
+		field.Type = fieldTypeMixed
 	}
 
 	// Add examples (limit to 5)
@@ -225,40 +232,8 @@ func (sa *SchemaAnalyzer) updateFieldSchema(field *FieldSchema, value any, depth
 		}
 	}
 
-	// Update string length stats
-	if valueType == "string" {
-		if str, ok := value.(string); ok {
-			length := len(str)
-			if field.MinLength == 0 || length < field.MinLength {
-				field.MinLength = length
-			}
-			if length > field.MaxLength {
-				field.MaxLength = length
-			}
-		}
-	}
-
-	// Handle arrays
-	if valueType == "array" {
-		if arr, ok := value.([]any); ok && len(arr) > 0 {
-			elementType := sa.getValueType(arr[0])
-			if field.ArrayElementType == "" {
-				field.ArrayElementType = elementType
-			} else if field.ArrayElementType != elementType {
-				field.ArrayElementType = "mixed"
-			}
-
-			// Analyze array elements if they're objects
-			if elementType == "object" && depth < sa.config.MaxDepth {
-				for i, elem := range arr {
-					if objData, ok := elem.(map[string]any); ok {
-						arrayPath := fmt.Sprintf("%s[%d]", field.Path, i)
-						sa.analyzeObjectFields(objData, field, arrayPath, depth+1)
-					}
-				}
-			}
-		}
-	}
+	sa.updateStringLengthStats(field, valueType, value)
+	sa.updateArraySchema(field, valueType, value, depth)
 
 	// Handle objects
 	if valueType == "object" {
@@ -268,8 +243,58 @@ func (sa *SchemaAnalyzer) updateFieldSchema(field *FieldSchema, value any, depth
 	}
 }
 
-// analyzeObjectFields analyzes fields within an object
-func (sa *SchemaAnalyzer) analyzeObjectFields(data map[string]any, parentField *FieldSchema, prefix string, depth int) {
+func (sa *Analyzer) updateStringLengthStats(field *FieldSchema, valueType string, value any) {
+	if valueType != "string" {
+		return
+	}
+
+	str, ok := value.(string)
+	if !ok {
+		return
+	}
+
+	length := len(str)
+	if field.MinLength == 0 || length < field.MinLength {
+		field.MinLength = length
+	}
+	if length > field.MaxLength {
+		field.MaxLength = length
+	}
+}
+
+func (sa *Analyzer) updateArraySchema(field *FieldSchema, valueType string, value any, depth int) {
+	if valueType != "array" {
+		return
+	}
+
+	arr, ok := value.([]any)
+	if !ok || len(arr) == 0 {
+		return
+	}
+
+	elementType := sa.getValueType(arr[0])
+	if field.ArrayElementType == "" {
+		field.ArrayElementType = elementType
+	} else if field.ArrayElementType != elementType {
+		field.ArrayElementType = fieldTypeMixed
+	}
+
+	if elementType != fieldTypeObject || depth >= sa.config.MaxDepth {
+		return
+	}
+
+	for i, elem := range arr {
+		objData, ok := elem.(map[string]any)
+		if !ok {
+			continue
+		}
+		arrayPath := fmt.Sprintf("%s[%d]", field.Path, i)
+		sa.analyzeObjectFields(objData, field, arrayPath, depth+1)
+	}
+}
+
+// analyzeObjectFields analyzes fields within an object.
+func (sa *Analyzer) analyzeObjectFields(data map[string]any, parentField *FieldSchema, prefix string, depth int) {
 	for key, value := range data {
 		fullPath := fmt.Sprintf("%s.%s", prefix, key)
 
@@ -285,33 +310,44 @@ func (sa *SchemaAnalyzer) analyzeObjectFields(data map[string]any, parentField *
 	}
 }
 
-// getValueType determines the type of a value
-func (sa *SchemaAnalyzer) getValueType(value any) string {
+// getValueType determines the type of a value.
+func (sa *Analyzer) getValueType(value any) string {
 	if value == nil {
 		return "null"
 	}
 
-	switch reflect.TypeOf(value).Kind() {
-	case reflect.String:
+	kind := reflect.TypeOf(value).Kind()
+
+	if kind == reflect.String {
 		return "string"
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return "integer"
-	case reflect.Float32, reflect.Float64:
-		return "number"
-	case reflect.Bool:
-		return "boolean"
-	case reflect.Slice, reflect.Array:
-		return "array"
-	case reflect.Map:
-		return "object"
-	default:
-		return "unknown"
 	}
+
+	if kind == reflect.Int || kind == reflect.Int8 || kind == reflect.Int16 || kind == reflect.Int32 || kind == reflect.Int64 ||
+		kind == reflect.Uint || kind == reflect.Uint8 || kind == reflect.Uint16 || kind == reflect.Uint32 || kind == reflect.Uint64 {
+		return "integer"
+	}
+
+	if kind == reflect.Float32 || kind == reflect.Float64 {
+		return "number"
+	}
+
+	if kind == reflect.Bool {
+		return "boolean"
+	}
+
+	if kind == reflect.Slice || kind == reflect.Array {
+		return "array"
+	}
+
+	if kind == reflect.Map {
+		return "object"
+	}
+
+	return "unknown"
 }
 
-// GenerateReport creates a schema report
-func (sa *SchemaAnalyzer) GenerateReport() *SchemaReport {
+// GenerateReport creates a schema report.
+func (sa *Analyzer) GenerateReport() *Report {
 	sa.mutex.RLock()
 	defer sa.mutex.RUnlock()
 
@@ -328,7 +364,7 @@ func (sa *SchemaAnalyzer) GenerateReport() *SchemaReport {
 		sampleRate = float64(sa.sampledRows) / float64(sa.totalRows)
 	}
 
-	return &SchemaReport{
+	return &Report{
 		GlobalSchema:  sa.globalSchema,
 		FolderSchemas: sa.folderSchemas,
 		TotalRows:     sa.totalRows,
@@ -337,8 +373,8 @@ func (sa *SchemaAnalyzer) GenerateReport() *SchemaReport {
 	}
 }
 
-// calculatePercentages calculates occurrence percentages for all fields
-func (sa *SchemaAnalyzer) calculatePercentages(schema *Schema) {
+// calculatePercentages calculates occurrence percentages for all fields.
+func (sa *Analyzer) calculatePercentages(schema *Schema) {
 	schema.mutex.Lock()
 	defer schema.mutex.Unlock()
 
@@ -356,8 +392,8 @@ func (sa *SchemaAnalyzer) calculatePercentages(schema *Schema) {
 	}
 }
 
-// calculateSubFieldPercentages calculates percentages for nested fields
-func (sa *SchemaAnalyzer) calculateSubFieldPercentages(field *FieldSchema, total float64) {
+// calculateSubFieldPercentages calculates percentages for nested fields.
+func (sa *Analyzer) calculateSubFieldPercentages(field *FieldSchema, total float64) {
 	field.mutex.Lock()
 	defer field.mutex.Unlock()
 
@@ -370,8 +406,8 @@ func (sa *SchemaAnalyzer) calculateSubFieldPercentages(field *FieldSchema, total
 	}
 }
 
-// SaveReport saves the schema report in specified formats
-func (sa *SchemaAnalyzer) SaveReport(baseFilename string, formats []string) error {
+// SaveReport saves the schema report in specified formats.
+func (sa *Analyzer) SaveReport(baseFilename string, formats []string) error {
 	report := sa.GenerateReport()
 
 	for _, format := range formats {
@@ -394,26 +430,29 @@ func (sa *SchemaAnalyzer) SaveReport(baseFilename string, formats []string) erro
 	return nil
 }
 
-// saveJSONReport saves the report as JSON
-func (sa *SchemaAnalyzer) saveJSONReport(report *SchemaReport, filename string) error {
+// saveJSONReport saves the report as JSON.
+func (sa *Analyzer) saveJSONReport(report *Report, filename string) error {
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal JSON: %w", err)
 	}
 
-	return os.WriteFile(filename, data, 0o644)
+	if err := os.WriteFile(filename, data, 0o600); err != nil {
+		return fmt.Errorf("write JSON schema report: %w", err)
+	}
+
+	return nil
 }
 
-// saveCSVReport saves the report as CSV
-func (sa *SchemaAnalyzer) saveCSVReport(report *SchemaReport, filename string) error {
+// saveCSVReport saves the report as CSV.
+func (sa *Analyzer) saveCSVReport(report *Report, filename string) error {
 	file, err := os.Create(filename)
 	if err != nil {
 		return fmt.Errorf("failed to create CSV file: %w", err)
 	}
-	defer file.Close()
+	defer safety.Close(file, filename)
 
 	writer := csv.NewWriter(file)
-	defer writer.Flush()
 
 	// Write header
 	header := []string{"Path", "Type", "Occurrences", "Percentage", "IsNullable", "UniqueCount", "MinLength", "MaxLength", "Examples"}
@@ -433,13 +472,18 @@ func (sa *SchemaAnalyzer) saveCSVReport(report *SchemaReport, filename string) e
 		}
 	}
 
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return fmt.Errorf("flush CSV schema report: %w", err)
+	}
+
 	return nil
 }
 
-// writeSchemaToCSV writes a schema to CSV format
-func (sa *SchemaAnalyzer) writeSchemaToCSV(writer *csv.Writer, schema *Schema, prefix string) error {
+// writeSchemaToCSV writes a schema to CSV format.
+func (sa *Analyzer) writeSchemaToCSV(writer *csv.Writer, schema *Schema, prefix string) error {
 	// Sort fields by path for consistent output
-	var paths []string
+	paths := make([]string, 0, len(schema.Fields))
 	for path := range schema.Fields {
 		paths = append(paths, path)
 	}
@@ -455,8 +499,8 @@ func (sa *SchemaAnalyzer) writeSchemaToCSV(writer *csv.Writer, schema *Schema, p
 	return nil
 }
 
-// writeFieldToCSV writes a field to CSV format
-func (sa *SchemaAnalyzer) writeFieldToCSV(writer *csv.Writer, field *FieldSchema, prefix string) error {
+// writeFieldToCSV writes a field to CSV format.
+func (sa *Analyzer) writeFieldToCSV(writer *csv.Writer, field *FieldSchema, prefix string) error {
 	examples := make([]string, len(field.Examples))
 	for i, ex := range field.Examples {
 		examples[i] = fmt.Sprintf("%v", ex)
@@ -474,15 +518,23 @@ func (sa *SchemaAnalyzer) writeFieldToCSV(writer *csv.Writer, field *FieldSchema
 		strings.Join(examples, "; "),
 	}
 
-	return writer.Write(record)
+	if err := writer.Write(record); err != nil {
+		return fmt.Errorf("write schema CSV record: %w", err)
+	}
+
+	return nil
 }
 
-// saveYAMLReport saves the report as YAML
-func (sa *SchemaAnalyzer) saveYAMLReport(report *SchemaReport, filename string) error {
+// saveYAMLReport saves the report as YAML.
+func (sa *Analyzer) saveYAMLReport(report *Report, filename string) error {
 	data, err := yaml.Marshal(report)
 	if err != nil {
 		return fmt.Errorf("failed to marshal YAML: %w", err)
 	}
 
-	return os.WriteFile(filename, data, 0o644)
+	if err := os.WriteFile(filename, data, 0o600); err != nil {
+		return fmt.Errorf("write YAML schema report: %w", err)
+	}
+
+	return nil
 }

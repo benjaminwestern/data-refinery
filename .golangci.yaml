@@ -4,11 +4,12 @@ run:
 linters:
   enable:
     - bodyclose
+    - errcheck
     - exhaustive
     - goconst
     - godot
-    - gomoddirectives
     - goprintffuncname
+    - gomoddirectives
     - gosec
     - misspell
     - nakedret
@@ -20,11 +21,13 @@ linters:
     - revive
     - rowserrcheck
     - sqlclosecheck
+    - staticcheck
     - tparallel
     - unconvert
     - unparam
-    - whitespace
+    - unused
     - wrapcheck
+    - whitespace
   exclusions:
     generated: lax
     presets:

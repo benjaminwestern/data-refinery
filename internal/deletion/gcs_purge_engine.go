@@ -1,4 +1,4 @@
-// internal/deletion/gcs_purge_engine.go
+// Package deletion provides local and GCS-backed duplicate purge workflows.
 package deletion
 
 import (
@@ -11,17 +11,18 @@ import (
 
 	"github.com/benjaminwestern/data-refinery/internal/backup"
 	"github.com/benjaminwestern/data-refinery/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/safety"
 	"github.com/benjaminwestern/data-refinery/internal/source"
 )
 
-// GCSPurgeEngine handles purging operations for GCS files with streaming
+// GCSPurgeEngine handles purging operations for GCS files with streaming.
 type GCSPurgeEngine struct {
 	ctx           context.Context
 	backupManager *backup.PurgedRowManager
 	pathResolver  *source.PathResolver
 }
 
-// NewGCSPurgeEngine creates a new GCS purge engine
+// NewGCSPurgeEngine creates a new GCS purge engine.
 func NewGCSPurgeEngine(ctx context.Context, backupManager *backup.PurgedRowManager) *GCSPurgeEngine {
 	return &GCSPurgeEngine{
 		ctx:           ctx,
@@ -30,7 +31,7 @@ func NewGCSPurgeEngine(ctx context.Context, backupManager *backup.PurgedRowManag
 	}
 }
 
-// IDBasedPurgeConfig contains configuration for ID-based purging
+// IDBasedPurgeConfig contains configuration for ID-based purging.
 type IDBasedPurgeConfig struct {
 	TargetIDs     []string `json:"target_ids"`
 	KeyPath       string   `json:"key_path"`
@@ -38,7 +39,7 @@ type IDBasedPurgeConfig struct {
 	BackupPath    string   `json:"backup_path"`
 }
 
-// NestedArrayPurgeConfig contains configuration for nested array purging
+// NestedArrayPurgeConfig contains configuration for nested array purging.
 type NestedArrayPurgeConfig struct {
 	ArrayPath     string   `json:"array_path"`
 	ItemKeyPath   string   `json:"item_key_path"`
@@ -47,7 +48,7 @@ type NestedArrayPurgeConfig struct {
 	BackupPath    string   `json:"backup_path"`
 }
 
-// PurgeResult contains the result of a purge operation
+// PurgeResult contains the result of a purge operation.
 type PurgeResult struct {
 	SourcePath        string `json:"source_path"`
 	TargetPath        string `json:"target_path"`
@@ -60,7 +61,7 @@ type PurgeResult struct {
 	OperationType     string `json:"operation_type"`
 }
 
-// processFile processes a file line by line with the given processor function
+// processFile processes a file line by line with the given processor function.
 func (gpe *GCSPurgeEngine) processFile(sourcePath, targetPath string, processor func([]byte) ([]byte, bool)) error {
 	// For now, just create a simple file processor that reads all lines
 	// In a full implementation, this would handle GCS streaming
@@ -70,18 +71,18 @@ func (gpe *GCSPurgeEngine) processFile(sourcePath, targetPath string, processor 
 	if err != nil {
 		return fmt.Errorf("failed to open source file: %w", err)
 	}
-	defer sourceFile.Close()
+	defer safety.Close(sourceFile, sourcePath)
 
 	// Create target file
 	targetFile, err := os.Create(targetPath)
 	if err != nil {
 		return fmt.Errorf("failed to create target file: %w", err)
 	}
-	defer targetFile.Close()
+	defer safety.Close(targetFile, targetPath)
 
 	scanner := bufio.NewScanner(sourceFile)
 	writer := bufio.NewWriter(targetFile)
-	defer writer.Flush()
+	defer safety.Flush(writer, targetPath)
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -102,7 +103,7 @@ func (gpe *GCSPurgeEngine) processFile(sourcePath, targetPath string, processor 
 	return nil
 }
 
-// ProcessIDBasedPurge processes ID-based purging for a GCS file
+// ProcessIDBasedPurge processes ID-based purging for a GCS file.
 func (gpe *GCSPurgeEngine) ProcessIDBasedPurge(
 	sourcePath string,
 	config *IDBasedPurgeConfig,
@@ -202,7 +203,7 @@ func (gpe *GCSPurgeEngine) ProcessIDBasedPurge(
 	return result, nil
 }
 
-// ProcessNestedArrayPurge processes nested array purging for a GCS file
+// ProcessNestedArrayPurge processes nested array purging for a GCS file.
 func (gpe *GCSPurgeEngine) ProcessNestedArrayPurge(
 	sourcePath string,
 	config *NestedArrayPurgeConfig,
@@ -352,7 +353,7 @@ func (gpe *GCSPurgeEngine) ProcessNestedArrayPurge(
 	return result, nil
 }
 
-// extractValueByPath extracts a value from a map using a dot-separated path
+// extractValueByPath extracts a value from a map using a dot-separated path.
 func (gpe *GCSPurgeEngine) extractValueByPath(data map[string]interface{}, path string) (interface{}, bool) {
 	if path == "" {
 		return nil, false
@@ -385,7 +386,7 @@ func (gpe *GCSPurgeEngine) extractValueByPath(data map[string]interface{}, path 
 	return nil, false
 }
 
-// setValueByPath sets a value in a map using a dot-separated path
+// setValueByPath sets a value in a map using a dot-separated path.
 func (gpe *GCSPurgeEngine) setValueByPath(data map[string]interface{}, path string, value interface{}) error {
 	if path == "" {
 		return fmt.Errorf("empty path")
@@ -420,17 +421,17 @@ func (gpe *GCSPurgeEngine) setValueByPath(data map[string]interface{}, path stri
 	return nil
 }
 
-// PurgeProcessor handles batch purge operations
+// PurgeProcessor handles batch purge operations.
 type PurgeProcessor struct {
 	engine *GCSPurgeEngine
 }
 
-// NewPurgeProcessor creates a new purge processor
+// NewPurgeProcessor creates a new purge processor.
 func NewPurgeProcessor(engine *GCSPurgeEngine) *PurgeProcessor {
 	return &PurgeProcessor{engine: engine}
 }
 
-// ProcessBatch processes multiple purge operations in batch
+// ProcessBatch processes multiple purge operations in batch.
 func (pp *PurgeProcessor) ProcessBatch(operations []PurgeOperation) ([]*PurgeResult, error) {
 	var results []*PurgeResult
 	var errors []error
@@ -471,14 +472,18 @@ func (pp *PurgeProcessor) ProcessBatch(operations []PurgeOperation) ([]*PurgeRes
 	return results, nil
 }
 
-// PurgeOperation represents a single purge operation
+// PurgeOperation represents a single purge operation.
 type PurgeOperation struct {
 	Type       string      `json:"type"`
 	SourcePath string      `json:"source_path"`
 	Config     interface{} `json:"config"`
 }
 
-// Close closes the GCS purge engine
+// Close closes the GCS purge engine.
 func (gpe *GCSPurgeEngine) Close() error {
-	return gpe.backupManager.CloseAll()
+	if err := gpe.backupManager.CloseAll(); err != nil {
+		return fmt.Errorf("close backup manager: %w", err)
+	}
+
+	return nil
 }

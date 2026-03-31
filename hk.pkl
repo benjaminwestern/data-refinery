@@ -1,0 +1,107 @@
+amends "package://github.com/jdx/hk/releases/download/v1.38.0/hk@1.38.0#/Config.pkl"
+
+local workspaceIndicator = "hk.pkl"
+
+local goFiles = List(
+    "*.go",
+    "**/*.go",
+    "go.mod",
+    "**/go.mod",
+    "go.sum",
+    "**/go.sum",
+    ".golangci.yaml",
+    "**/.golangci.yaml",
+)
+
+local formatters = new Mapping<String, Step> {
+    ["hk_config"] {
+        glob = List(
+            "hk.pkl",
+            "**/hk.pkl",
+        )
+        workspace_indicator = workspaceIndicator
+        check = "cd {{workspace}} && hk validate"
+        batch = false
+    }
+
+    ["go_format"] {
+        glob = goFiles
+        workspace_indicator = workspaceIndicator
+        check = "cd {{workspace}} && mise run go:fmt:check"
+        fix = "cd {{workspace}} && mise run go:fmt"
+        batch = false
+    }
+}
+
+local verifiers = new Mapping<String, Step> {
+    ["mise_config"] {
+        glob = List(
+            "mise.toml",
+            "**/mise.toml",
+        )
+        workspace_indicator = workspaceIndicator
+        check = "cd {{workspace}} && mise run mise:validate"
+        batch = false
+    }
+
+    ["hk_config"] {
+        glob = List(
+            "hk.pkl",
+            "**/hk.pkl",
+        )
+        workspace_indicator = workspaceIndicator
+        check = "cd {{workspace}} && hk validate"
+        batch = false
+    }
+
+    ["go_format"] {
+        glob = goFiles
+        workspace_indicator = workspaceIndicator
+        check = "cd {{workspace}} && mise run go:fmt:check"
+        batch = false
+    }
+
+    ["go_lint"] {
+        glob = goFiles
+        workspace_indicator = workspaceIndicator
+        check = "cd {{workspace}} && mise run go:lint"
+        batch = false
+    }
+
+    ["go_tests"] {
+        glob = goFiles
+        workspace_indicator = workspaceIndicator
+        check = "cd {{workspace}} && mise run go:test"
+        batch = false
+    }
+
+    ["script_checks"] {
+        glob = List(
+            "scripts/**/*.sh",
+            "**/scripts/**/*.sh",
+            "scripts/**/*.py",
+            "**/scripts/**/*.py",
+        )
+        workspace_indicator = workspaceIndicator
+        check = "cd {{workspace}} && mise run scripts:check"
+        batch = false
+    }
+}
+
+hooks {
+    ["pre-commit"] {
+        fix = true
+        stash = "git"
+        steps = formatters
+    }
+    ["pre-push"] {
+        steps = verifiers
+    }
+    ["fix"] {
+        fix = true
+        steps = formatters
+    }
+    ["check"] {
+        steps = verifiers
+    }
+}

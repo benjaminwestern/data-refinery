@@ -1,23 +1,23 @@
-// internal/backup/dedup_storage.go
+// Package backup provides storage helpers for preserved deduplication artefacts.
 package backup
 
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/benjaminwestern/data-refinery/internal/report"
 )
 
-// DedupStorage handles storage of deduplicated rows
+// DedupStorage handles storage of deduplicated rows.
 type DedupStorage struct {
 	*PurgedRowStorage
 	dedupConfig *DedupConfig
 }
 
-// DedupConfig contains configuration for deduplication storage
+// DedupConfig contains configuration for deduplication storage.
 type DedupConfig struct {
 	Key          string `json:"key"`
 	Strategy     string `json:"strategy"` // "first", "last", "interactive"
@@ -26,7 +26,7 @@ type DedupConfig struct {
 	BestCriteria string `json:"best_criteria"` // "most_complete", "newest", "oldest"
 }
 
-// NewDedupStorage creates a new deduplication storage instance
+// NewDedupStorage creates a new deduplication storage instance.
 func NewDedupStorage(basePath string, config *DedupConfig) *DedupStorage {
 	return &DedupStorage{
 		PurgedRowStorage: NewPurgedRowStorage(basePath),
@@ -34,7 +34,7 @@ func NewDedupStorage(basePath string, config *DedupConfig) *DedupStorage {
 	}
 }
 
-// ProcessDuplicates processes a set of duplicate rows and determines which to keep
+// ProcessDuplicates processes a set of duplicate rows and determines which to keep.
 func (ds *DedupStorage) ProcessDuplicates(
 	duplicateKey string,
 	duplicateRows []DuplicateRow,
@@ -66,7 +66,7 @@ func (ds *DedupStorage) ProcessDuplicates(
 	for _, row := range purgeRows {
 		if err := ds.StorePurgedRow(
 			storageKey,
-			json.RawMessage(row.Data),
+			row.Data,
 			row.Location,
 			"duplicate",
 			map[string]interface{}{
@@ -95,7 +95,7 @@ func (ds *DedupStorage) ProcessDuplicates(
 	}, nil
 }
 
-// selectRowsToKeep determines which rows to keep based on the configured strategy
+// selectRowsToKeep determines which rows to keep based on the configured strategy.
 func (ds *DedupStorage) selectRowsToKeep(duplicateRows []DuplicateRow) ([]DuplicateRow, []DuplicateRow, error) {
 	switch ds.dedupConfig.Strategy {
 	case "first":
@@ -111,7 +111,7 @@ func (ds *DedupStorage) selectRowsToKeep(duplicateRows []DuplicateRow) ([]Duplic
 	}
 }
 
-// selectFirst keeps the first occurrence
+// selectFirst keeps the first occurrence.
 func (ds *DedupStorage) selectFirst(duplicateRows []DuplicateRow) ([]DuplicateRow, []DuplicateRow, error) {
 	if len(duplicateRows) == 0 {
 		return nil, nil, fmt.Errorf("no rows to process")
@@ -133,7 +133,7 @@ func (ds *DedupStorage) selectFirst(duplicateRows []DuplicateRow) ([]DuplicateRo
 	return sorted[:1], sorted[1:], nil
 }
 
-// selectLast keeps the last occurrence
+// selectLast keeps the last occurrence.
 func (ds *DedupStorage) selectLast(duplicateRows []DuplicateRow) ([]DuplicateRow, []DuplicateRow, error) {
 	if len(duplicateRows) == 0 {
 		return nil, nil, fmt.Errorf("no rows to process")
@@ -155,14 +155,14 @@ func (ds *DedupStorage) selectLast(duplicateRows []DuplicateRow) ([]DuplicateRow
 	return sorted[len(sorted)-1:], sorted[:len(sorted)-1], nil
 }
 
-// selectInteractive would present choices to user (placeholder for now)
+// selectInteractive would present choices to user (placeholder for now).
 func (ds *DedupStorage) selectInteractive(duplicateRows []DuplicateRow) ([]DuplicateRow, []DuplicateRow, error) {
 	// For now, fallback to first strategy
 	// In a full implementation, this would present a TUI for user selection
 	return ds.selectFirst(duplicateRows)
 }
 
-// selectBest keeps the "best" row based on configured criteria
+// selectBest keeps the "best" row based on configured criteria.
 func (ds *DedupStorage) selectBest(duplicateRows []DuplicateRow) ([]DuplicateRow, []DuplicateRow, error) {
 	if len(duplicateRows) == 0 {
 		return nil, nil, fmt.Errorf("no rows to process")
@@ -195,7 +195,7 @@ func (ds *DedupStorage) selectBest(duplicateRows []DuplicateRow) ([]DuplicateRow
 	return keepRows, purgeRows, nil
 }
 
-// findMostComplete finds the row with the most non-null fields
+// findMostComplete finds the row with the most non-null fields.
 func (ds *DedupStorage) findMostComplete(duplicateRows []DuplicateRow) (DuplicateRow, int) {
 	if len(duplicateRows) == 0 {
 		return DuplicateRow{}, -1
@@ -217,7 +217,7 @@ func (ds *DedupStorage) findMostComplete(duplicateRows []DuplicateRow) (Duplicat
 	return bestRow, bestIndex
 }
 
-// findNewest finds the row with the most recent timestamp
+// findNewest finds the row with the most recent timestamp.
 func (ds *DedupStorage) findNewest(duplicateRows []DuplicateRow) (DuplicateRow, int) {
 	if len(duplicateRows) == 0 {
 		return DuplicateRow{}, -1
@@ -239,7 +239,7 @@ func (ds *DedupStorage) findNewest(duplicateRows []DuplicateRow) (DuplicateRow, 
 	return bestRow, bestIndex
 }
 
-// findOldest finds the row with the oldest timestamp
+// findOldest finds the row with the oldest timestamp.
 func (ds *DedupStorage) findOldest(duplicateRows []DuplicateRow) (DuplicateRow, int) {
 	if len(duplicateRows) == 0 {
 		return DuplicateRow{}, -1
@@ -261,7 +261,7 @@ func (ds *DedupStorage) findOldest(duplicateRows []DuplicateRow) (DuplicateRow, 
 	return bestRow, bestIndex
 }
 
-// calculateCompletenessScore calculates a score based on how complete a row is
+// calculateCompletenessScore calculates a score based on how complete a row is.
 func (ds *DedupStorage) calculateCompletenessScore(row DuplicateRow) int {
 	var data map[string]interface{}
 	if err := json.Unmarshal(row.Data, &data); err != nil {
@@ -293,7 +293,7 @@ func (ds *DedupStorage) calculateCompletenessScore(row DuplicateRow) int {
 	return score
 }
 
-// extractTimestamp extracts a timestamp from a row
+// extractTimestamp extracts a timestamp from a row.
 func (ds *DedupStorage) extractTimestamp(row DuplicateRow) time.Time {
 	var data map[string]interface{}
 	if err := json.Unmarshal(row.Data, &data); err != nil {
@@ -326,7 +326,7 @@ func (ds *DedupStorage) extractTimestamp(row DuplicateRow) time.Time {
 	return time.Time{}
 }
 
-// isRowEarlier determines if row1 comes before row2
+// isRowEarlier determines if row1 comes before row2.
 func (ds *DedupStorage) isRowEarlier(row1, row2 DuplicateRow) bool {
 	if row1.Location.FilePath == row2.Location.FilePath {
 		return row1.Location.LineNumber < row2.Location.LineNumber
@@ -334,7 +334,7 @@ func (ds *DedupStorage) isRowEarlier(row1, row2 DuplicateRow) bool {
 	return row1.Location.FilePath < row2.Location.FilePath
 }
 
-// extractLocations extracts location information from rows
+// extractLocations extracts location information from rows.
 func (ds *DedupStorage) extractLocations(rows []DuplicateRow) []report.LocationInfo {
 	locations := make([]report.LocationInfo, len(rows))
 	for i, row := range rows {
@@ -343,14 +343,14 @@ func (ds *DedupStorage) extractLocations(rows []DuplicateRow) []report.LocationI
 	return locations
 }
 
-// DuplicateRow represents a row that is a duplicate
+// DuplicateRow represents a row that is a duplicate.
 type DuplicateRow struct {
 	Data     json.RawMessage        `json:"data"`
 	Location report.LocationInfo    `json:"location"`
 	Metadata map[string]interface{} `json:"metadata"`
 }
 
-// DedupResult contains the result of a deduplication operation
+// DedupResult contains the result of a deduplication operation.
 type DedupResult struct {
 	Key             string                `json:"key"`
 	TotalDuplicates int                   `json:"total_duplicates"`
@@ -362,7 +362,7 @@ type DedupResult struct {
 	ProcessedAt     time.Time             `json:"processed_at"`
 }
 
-// DedupSummary contains summary statistics for deduplication
+// DedupSummary contains summary statistics for deduplication.
 type DedupSummary struct {
 	TotalKeys      int                     `json:"total_keys"`
 	DuplicateKeys  int                     `json:"duplicate_keys"`
@@ -374,7 +374,7 @@ type DedupSummary struct {
 	ResultsByKey   map[string]*DedupResult `json:"results_by_key"`
 }
 
-// DedupProcessor handles batch deduplication operations
+// DedupProcessor handles batch deduplication operations.
 type DedupProcessor struct {
 	storage   *DedupStorage
 	config    *DedupConfig
@@ -382,7 +382,7 @@ type DedupProcessor struct {
 	startTime time.Time
 }
 
-// NewDedupProcessor creates a new deduplication processor
+// NewDedupProcessor creates a new deduplication processor.
 func NewDedupProcessor(config *DedupConfig, basePath string) *DedupProcessor {
 	return &DedupProcessor{
 		storage: NewDedupStorage(basePath, config),
@@ -395,7 +395,7 @@ func NewDedupProcessor(config *DedupConfig, basePath string) *DedupProcessor {
 	}
 }
 
-// ProcessDuplicateMap processes a map of duplicate keys to rows
+// ProcessDuplicateMap processes a map of duplicate keys to rows.
 func (dp *DedupProcessor) ProcessDuplicateMap(
 	duplicateMap map[string][]DuplicateRow,
 	sourcePath string,
@@ -424,7 +424,7 @@ func (dp *DedupProcessor) ProcessDuplicateMap(
 	return dp.summary, nil
 }
 
-// SaveSummary saves the deduplication summary to a file
+// SaveSummary saves the deduplication summary to a file.
 func (dp *DedupProcessor) SaveSummary(basePath string) error {
 	data, err := json.MarshalIndent(dp.summary, "", "  ")
 	if err != nil {
@@ -432,14 +432,14 @@ func (dp *DedupProcessor) SaveSummary(basePath string) error {
 	}
 
 	summaryPath := filepath.Join(basePath, "deduplication_summary.json")
-	if err := ioutil.WriteFile(summaryPath, data, 0o644); err != nil {
+	if err := os.WriteFile(summaryPath, data, 0o600); err != nil {
 		return fmt.Errorf("failed to write summary: %w", err)
 	}
 
 	return nil
 }
 
-// Close closes the deduplication processor
+// Close closes the deduplication processor.
 func (dp *DedupProcessor) Close() error {
 	return dp.storage.Close()
 }

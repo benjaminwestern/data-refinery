@@ -1,4 +1,4 @@
-// internal/processing/report_generator.go
+// Package processing contains row-level analysis, recovery, and report assembly helpers.
 package processing
 
 import (
@@ -7,20 +7,21 @@ import (
 
 	"github.com/benjaminwestern/data-refinery/internal/deletion"
 	"github.com/benjaminwestern/data-refinery/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/safety"
 	"github.com/benjaminwestern/data-refinery/internal/schema"
 	"github.com/benjaminwestern/data-refinery/internal/search"
 	"github.com/benjaminwestern/data-refinery/internal/source"
 )
 
-// ReportGenerator handles the generation of analysis reports
+// ReportGenerator handles the generation of analysis reports.
 type ReportGenerator struct {
-	searchEngine   *search.SearchEngine
-	schemaAnalyzer *schema.SchemaAnalyzer
-	deletionEngine *deletion.DeletionEngine
+	searchEngine   *search.Engine
+	schemaAnalyzer *schema.Analyzer
+	deletionEngine *deletion.Engine
 }
 
-// NewReportGenerator creates a new report generator
-func NewReportGenerator(searchEngine *search.SearchEngine, schemaAnalyzer *schema.SchemaAnalyzer, deletionEngine *deletion.DeletionEngine) *ReportGenerator {
+// NewReportGenerator creates a new report generator.
+func NewReportGenerator(searchEngine *search.Engine, schemaAnalyzer *schema.Analyzer, deletionEngine *deletion.Engine) *ReportGenerator {
 	return &ReportGenerator{
 		searchEngine:   searchEngine,
 		schemaAnalyzer: schemaAnalyzer,
@@ -28,11 +29,11 @@ func NewReportGenerator(searchEngine *search.SearchEngine, schemaAnalyzer *schem
 	}
 }
 
-// GenerateReport creates a comprehensive analysis report
+// GenerateReport creates a comprehensive analysis report.
 func (rg *ReportGenerator) GenerateReport(
 	sources []source.InputSource,
 	rowProcessor *DefaultRowProcessor,
-	totalRows int64,
+	_ int64,
 	processedFiles int64,
 	uniqueKey string,
 	isValidation bool,
@@ -127,7 +128,7 @@ func (rg *ReportGenerator) GenerateReport(
 	// Set summary fields
 	rep.Summary.IsValidationReport = isValidation
 	rep.Summary.IsPartialReport = wasCancelled
-	rep.Summary.FilesProcessed = int32(processedFiles)
+	rep.Summary.FilesProcessed = safety.SaturatingInt32FromInt64(processedFiles)
 	rep.Summary.TotalFiles = len(sources)
 	rep.Summary.TotalRowsProcessed = totalRowsProcessed
 	rep.Summary.UniqueKey = uniqueKey
@@ -182,8 +183,8 @@ func folderForPath(filePath string) string {
 	return filepath.Dir(filePath)
 }
 
-// GetSearchResults returns search results from the search engine
-func (rg *ReportGenerator) GetSearchResults() *search.SearchResults {
+// GetSearchResults returns search results from the search engine.
+func (rg *ReportGenerator) GetSearchResults() *search.Results {
 	if rg.searchEngine == nil {
 		return nil
 	}
@@ -191,16 +192,16 @@ func (rg *ReportGenerator) GetSearchResults() *search.SearchResults {
 	return &results
 }
 
-// GetSchemaReport returns schema analysis results
-func (rg *ReportGenerator) GetSchemaReport() *schema.SchemaReport {
+// GetSchemaReport returns schema analysis results.
+func (rg *ReportGenerator) GetSchemaReport() *schema.Report {
 	if rg.schemaAnalyzer == nil {
 		return nil
 	}
 	return rg.schemaAnalyzer.GenerateReport()
 }
 
-// GetDeletionStats returns deletion statistics
-func (rg *ReportGenerator) GetDeletionStats() *deletion.DeletionStats {
+// GetDeletionStats returns deletion statistics.
+func (rg *ReportGenerator) GetDeletionStats() *deletion.Stats {
 	if rg.deletionEngine == nil {
 		return nil
 	}

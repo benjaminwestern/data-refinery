@@ -2,19 +2,15 @@ package processing
 
 import (
 	"context"
-	"errors"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/benjaminwestern/data-refinery/internal/safety"
 )
 
-var (
-	ErrWorkStealingPoolClosed = errors.New("work-stealing pool is closed")
-	ErrNoWorkAvailable        = errors.New("no work available to steal")
-)
-
-// WorkStealingDeque represents a lock-free double-ended queue for work stealing
+// WorkStealingDeque represents a lock-free double-ended queue for work stealing.
 type WorkStealingDeque[T any] struct {
 	// Ring buffer for storing tasks
 	buffer []atomic.Pointer[T]
@@ -32,7 +28,7 @@ type WorkStealingDeque[T any] struct {
 	mu sync.RWMutex
 }
 
-// NewWorkStealingDeque creates a new work-stealing deque with the given capacity
+// NewWorkStealingDeque creates a new work-stealing deque with the given capacity.
 func NewWorkStealingDeque[T any](capacity int64) *WorkStealingDeque[T] {
 	if capacity <= 0 {
 		capacity = 1024 // Default capacity
@@ -52,7 +48,7 @@ func NewWorkStealingDeque[T any](capacity int64) *WorkStealingDeque[T] {
 	}
 }
 
-// PushBottom adds a task to the bottom of the deque (owner operation)
+// PushBottom adds a task to the bottom of the deque (owner operation).
 func (d *WorkStealingDeque[T]) PushBottom(task T) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -75,7 +71,7 @@ func (d *WorkStealingDeque[T]) PushBottom(task T) bool {
 	return true
 }
 
-// PopBottom removes a task from the bottom of the deque (owner operation)
+// PopBottom removes a task from the bottom of the deque (owner operation).
 func (d *WorkStealingDeque[T]) PopBottom() (*T, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -97,7 +93,7 @@ func (d *WorkStealingDeque[T]) PopBottom() (*T, bool) {
 	return task, task != nil
 }
 
-// StealTop attempts to steal a task from the top of the deque (thief operation)
+// StealTop attempts to steal a task from the top of the deque (thief operation).
 func (d *WorkStealingDeque[T]) StealTop() (*T, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -116,7 +112,7 @@ func (d *WorkStealingDeque[T]) StealTop() (*T, bool) {
 	return nil, false
 }
 
-// Size returns the approximate size of the deque
+// Size returns the approximate size of the deque.
 func (d *WorkStealingDeque[T]) Size() int64 {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -130,12 +126,12 @@ func (d *WorkStealingDeque[T]) Size() int64 {
 	return size
 }
 
-// IsEmpty returns true if the deque is empty
+// IsEmpty returns true if the deque is empty.
 func (d *WorkStealingDeque[T]) IsEmpty() bool {
 	return d.Size() == 0
 }
 
-// WorkStealingWorker represents a single worker in the work-stealing pool
+// WorkStealingWorker represents a single worker in the work-stealing pool.
 type WorkStealingWorker[T any] struct {
 	id    int
 	deque *WorkStealingDeque[TaskWithIndex[T]]
@@ -157,9 +153,9 @@ type WorkStealingWorker[T any] struct {
 	cancel context.CancelFunc
 }
 
-// NewWorkStealingWorker creates a new work-stealing worker
+// NewWorkStealingWorker creates a new work-stealing worker.
 func NewWorkStealingWorker[T any](id int, pool *WorkStealingPool[T], dequeSize int64) *WorkStealingWorker[T] {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := safety.ManagedContext(context.Background())
 
 	return &WorkStealingWorker[T]{
 		id:       id,
@@ -171,19 +167,19 @@ func NewWorkStealingWorker[T any](id int, pool *WorkStealingPool[T], dequeSize i
 	}
 }
 
-// Start starts the worker
+// Start starts the worker.
 func (w *WorkStealingWorker[T]) Start() {
 	w.isActive.Store(true)
 	go w.run()
 }
 
-// Stop stops the worker
+// Stop stops the worker.
 func (w *WorkStealingWorker[T]) Stop() {
 	w.isActive.Store(false)
 	w.cancel()
 }
 
-// run is the main worker loop
+// run is the main worker loop.
 func (w *WorkStealingWorker[T]) run() {
 	defer w.pool.workerDone()
 
@@ -227,7 +223,7 @@ func (w *WorkStealingWorker[T]) run() {
 	}
 }
 
-// processTask processes a single task
+// processTask processes a single task.
 func (w *WorkStealingWorker[T]) processTask(taskWithIndex TaskWithIndex[T]) {
 	result, err := w.pool.processor.Process(w.ctx, taskWithIndex.Task)
 
@@ -244,7 +240,7 @@ func (w *WorkStealingWorker[T]) processTask(taskWithIndex TaskWithIndex[T]) {
 	}
 }
 
-// attemptSteal attempts to steal work from other workers
+// attemptSteal attempts to steal work from other workers.
 func (w *WorkStealingWorker[T]) attemptSteal() (*TaskWithIndex[T], bool) {
 	w.stealAttempts.Add(1)
 
@@ -257,7 +253,7 @@ func (w *WorkStealingWorker[T]) attemptSteal() (*TaskWithIndex[T], bool) {
 	return w.stealFromAnyWorker()
 }
 
-// stealFromNUMANode attempts to steal from workers in the same NUMA node
+// stealFromNUMANode attempts to steal from workers in the same NUMA node.
 func (w *WorkStealingWorker[T]) stealFromNUMANode() (*TaskWithIndex[T], bool) {
 	workers := w.pool.workers
 
@@ -273,7 +269,7 @@ func (w *WorkStealingWorker[T]) stealFromNUMANode() (*TaskWithIndex[T], bool) {
 	return nil, false
 }
 
-// stealFromAnyWorker attempts to steal from any worker
+// stealFromAnyWorker attempts to steal from any worker.
 func (w *WorkStealingWorker[T]) stealFromAnyWorker() (*TaskWithIndex[T], bool) {
 	workers := w.pool.workers
 
@@ -291,7 +287,7 @@ func (w *WorkStealingWorker[T]) stealFromAnyWorker() (*TaskWithIndex[T], bool) {
 	return nil, false
 }
 
-// GetStats returns worker statistics
+// GetStats returns worker statistics.
 func (w *WorkStealingWorker[T]) GetStats() WorkStealingWorkerStats {
 	return WorkStealingWorkerStats{
 		ID:             w.id,
@@ -304,7 +300,7 @@ func (w *WorkStealingWorker[T]) GetStats() WorkStealingWorkerStats {
 	}
 }
 
-// WorkStealingWorkerStats contains statistics for a work-stealing worker
+// WorkStealingWorkerStats contains statistics for a work-stealing worker.
 type WorkStealingWorkerStats struct {
 	ID             int
 	TasksProcessed int64
@@ -315,7 +311,7 @@ type WorkStealingWorkerStats struct {
 	IsActive       bool
 }
 
-// WorkStealingPool manages a pool of work-stealing workers
+// WorkStealingPool manages a pool of work-stealing workers.
 type WorkStealingPool[T any] struct {
 	workers   []*WorkStealingWorker[T]
 	processor TaskProcessor[T]
@@ -336,15 +332,13 @@ type WorkStealingPool[T any] struct {
 	shutdownCancel context.CancelFunc
 
 	// Performance metrics
-	totalTasks         atomic.Int64
-	totalSteals        atomic.Int64
-	totalStealAttempts atomic.Int64
+	totalTasks atomic.Int64
 
 	// Configuration
 	options WorkStealingPoolOptions
 }
 
-// WorkStealingPoolOptions configures the work-stealing pool
+// WorkStealingPoolOptions configures the work-stealing pool.
 type WorkStealingPoolOptions struct {
 	Workers        int
 	DequeSize      int64
@@ -352,7 +346,7 @@ type WorkStealingPoolOptions struct {
 	EnableNUMA     bool
 }
 
-// NewWorkStealingPool creates a new work-stealing pool
+// NewWorkStealingPool creates a new work-stealing pool.
 func NewWorkStealingPool[T any](processor TaskProcessor[T], opts WorkStealingPoolOptions) *WorkStealingPool[T] {
 	if opts.Workers <= 0 {
 		opts.Workers = runtime.NumCPU()
@@ -376,14 +370,14 @@ func NewWorkStealingPool[T any](processor TaskProcessor[T], opts WorkStealingPoo
 
 func (p *WorkStealingPool[T]) resetRuntimeState() {
 	p.resultChan = make(chan WorkResult[T], p.options.ResultChanSize)
-	p.shutdownCtx, p.shutdownCancel = context.WithCancel(context.Background())
+	p.shutdownCtx, p.shutdownCancel = safety.ManagedContext(context.Background())
 	p.workers = make([]*WorkStealingWorker[T], p.options.Workers)
 	for i := 0; i < p.options.Workers; i++ {
 		p.workers[i] = NewWorkStealingWorker[T](i, p, p.options.DequeSize)
 	}
 }
 
-// Start starts the work-stealing pool
+// Start starts the work-stealing pool.
 func (p *WorkStealingPool[T]) Start() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -405,7 +399,7 @@ func (p *WorkStealingPool[T]) Start() {
 	}
 }
 
-// Stop stops the work-stealing pool
+// Stop stops the work-stealing pool.
 func (p *WorkStealingPool[T]) Stop() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -431,12 +425,12 @@ func (p *WorkStealingPool[T]) Stop() {
 	p.shutdownCancel()
 }
 
-// Submit submits a task to the work-stealing pool
+// Submit submits a task to the work-stealing pool.
 func (p *WorkStealingPool[T]) Submit(task T) bool {
 	return p.SubmitWithIndex(task, -1)
 }
 
-// SubmitWithIndex submits a task with a specific index
+// SubmitWithIndex submits a task with a specific index.
 func (p *WorkStealingPool[T]) SubmitWithIndex(task T, index int) bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -470,17 +464,17 @@ func (p *WorkStealingPool[T]) SubmitWithIndex(task T, index int) bool {
 	return false
 }
 
-// Results returns the results channel
+// Results returns the results channel.
 func (p *WorkStealingPool[T]) Results() <-chan WorkResult[T] {
 	return p.resultChan
 }
 
-// workerDone is called when a worker finishes
+// workerDone is called when a worker finishes.
 func (p *WorkStealingPool[T]) workerDone() {
 	p.wg.Done()
 }
 
-// GetStats returns pool statistics
+// GetStats returns pool statistics.
 func (p *WorkStealingPool[T]) GetStats() WorkStealingPoolStats {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -509,7 +503,7 @@ func (p *WorkStealingPool[T]) GetStats() WorkStealingPoolStats {
 	}
 }
 
-// WorkStealingPoolStats contains statistics for the work-stealing pool
+// WorkStealingPoolStats contains statistics for the work-stealing pool.
 type WorkStealingPoolStats struct {
 	Workers            int
 	TotalTasks         int64
@@ -520,7 +514,7 @@ type WorkStealingPoolStats struct {
 	WorkerStats        []WorkStealingWorkerStats
 }
 
-// ProcessBatch processes a batch of tasks using work-stealing
+// ProcessBatch processes a batch of tasks using work-stealing.
 func (p *WorkStealingPool[T]) ProcessBatch(tasks []T) []WorkResult[T] {
 	shouldStop := false
 	if !p.IsRunning() {
@@ -593,14 +587,14 @@ func (p *WorkStealingPool[T]) ProcessBatch(tasks []T) []WorkResult[T] {
 	return results
 }
 
-// IsRunning returns whether the pool is running
+// IsRunning returns whether the pool is running.
 func (p *WorkStealingPool[T]) IsRunning() bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.running
 }
 
-// WorkerCount returns the number of workers
+// WorkerCount returns the number of workers.
 func (p *WorkStealingPool[T]) WorkerCount() int {
 	return len(p.workers)
 }

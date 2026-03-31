@@ -1,0 +1,29 @@
+defaults:
+  trimWhitespace: true
+files:
+  - match:
+      name: customers.csv
+      format: csv
+    columns:
+      customer_id: Id
+      first_name: FirstName
+      last_name: LastName
+      email: Email
+      mobile: Mobile
+      postcode: PostCode
+    attributes:
+      status: SubscriptionStatus
+      preference: ContactPreference
+    dataSource: csv-upload
+  - match:
+      name: customers.jsonl
+      format: jsonl
+    columns:
+      identifier: Id
+      profile.first_name: FirstName
+      profile.last_name: LastName
+      profile.email: Email
+      phone: Mobile
+      postal_code: PostCode
+      source: DataSource
+    includeUnmappedAsAttributes: true

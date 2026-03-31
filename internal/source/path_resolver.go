@@ -1,4 +1,4 @@
-// internal/source/path_resolver.go
+// Package source resolves local and remote source paths for guarded processing.
 package source
 
 import (
@@ -8,13 +8,13 @@ import (
 	"strings"
 )
 
-// PathResolver handles path resolution and manipulation for different storage backends
+// PathResolver handles path resolution and manipulation for different storage backends.
 type PathResolver struct {
 	preserveStructure bool
 	basePath          string
 }
 
-// NewPathResolver creates a new path resolver
+// NewPathResolver creates a new path resolver.
 func NewPathResolver(preserveStructure bool, basePath string) *PathResolver {
 	return &PathResolver{
 		preserveStructure: preserveStructure,
@@ -22,7 +22,7 @@ func NewPathResolver(preserveStructure bool, basePath string) *PathResolver {
 	}
 }
 
-// GCSPathInfo contains information about a GCS path
+// GCSPathInfo contains information about a GCS path.
 type GCSPathInfo struct {
 	FullPath   string
 	Bucket     string
@@ -71,7 +71,7 @@ func BuildContainedLocalPath(root, originalPath string) (string, error) {
 	return joinContainedPath(root, parts...)
 }
 
-// ParseGCSPath parses a GCS path into its components
+// ParseGCSPath parses a GCS path into its components.
 func (pr *PathResolver) ParseGCSPath(gcsPath string) (*GCSPathInfo, error) {
 	if !strings.HasPrefix(gcsPath, "gs://") {
 		return nil, fmt.Errorf("invalid GCS path: must start with gs://")
@@ -110,7 +110,7 @@ func (pr *PathResolver) ParseGCSPath(gcsPath string) (*GCSPathInfo, error) {
 	}, nil
 }
 
-// GenerateProcessedPath generates a processed file path maintaining the original structure
+// GenerateProcessedPath generates a processed file path maintaining the original structure.
 func (pr *PathResolver) GenerateProcessedPath(originalPath, suffix string) (string, error) {
 	if strings.HasPrefix(originalPath, "gs://") {
 		return pr.generateGCSProcessedPath(originalPath, suffix)
@@ -119,7 +119,7 @@ func (pr *PathResolver) GenerateProcessedPath(originalPath, suffix string) (stri
 	return pr.generateLocalProcessedPath(originalPath, suffix)
 }
 
-// generateGCSProcessedPath generates a processed GCS path
+// generateGCSProcessedPath generates a processed GCS path.
 func (pr *PathResolver) generateGCSProcessedPath(originalPath, suffix string) (string, error) {
 	pathInfo, err := pr.ParseGCSPath(originalPath)
 	if err != nil {
@@ -144,7 +144,7 @@ func (pr *PathResolver) generateGCSProcessedPath(originalPath, suffix string) (s
 	return newPath, nil
 }
 
-// generateLocalProcessedPath generates a processed local path
+// generateLocalProcessedPath generates a processed local path.
 func (pr *PathResolver) generateLocalProcessedPath(originalPath, suffix string) (string, error) {
 	directory := filepath.Dir(originalPath)
 	fileName := filepath.Base(originalPath)
@@ -157,7 +157,7 @@ func (pr *PathResolver) generateLocalProcessedPath(originalPath, suffix string) 
 	return newPath, nil
 }
 
-// CreateBackupPath creates a backup path for a file
+// CreateBackupPath creates a backup path for a file.
 func (pr *PathResolver) CreateBackupPath(originalPath, backupDir string) (string, error) {
 	if strings.HasPrefix(originalPath, "gs://") {
 		return pr.createGCSBackupPath(originalPath, backupDir)
@@ -166,7 +166,7 @@ func (pr *PathResolver) CreateBackupPath(originalPath, backupDir string) (string
 	return pr.createLocalBackupPath(originalPath, backupDir)
 }
 
-// createGCSBackupPath creates a backup path for GCS files (converts to local)
+// createGCSBackupPath creates a backup path for GCS files (converts to local).
 func (pr *PathResolver) createGCSBackupPath(originalPath, backupDir string) (string, error) {
 	pathInfo, err := pr.ParseGCSPath(originalPath)
 	if err != nil {
@@ -176,12 +176,12 @@ func (pr *PathResolver) createGCSBackupPath(originalPath, backupDir string) (str
 	return BuildContainedGCSLocalPath(backupDir, pathInfo.Bucket, pathInfo.ObjectName)
 }
 
-// createLocalBackupPath creates a backup path for local files
+// createLocalBackupPath creates a backup path for local files.
 func (pr *PathResolver) createLocalBackupPath(originalPath, backupDir string) (string, error) {
 	return BuildContainedLocalPath(backupDir, originalPath)
 }
 
-// PathMapping represents a mapping between original and processed paths
+// PathMapping represents a mapping between original and processed paths.
 type PathMapping struct {
 	OriginalPath  string
 	ProcessedPath string
@@ -190,7 +190,7 @@ type PathMapping struct {
 	PathInfo      *GCSPathInfo
 }
 
-// CreatePathMapping creates a complete path mapping for a file
+// CreatePathMapping creates a complete path mapping for a file.
 func (pr *PathResolver) CreatePathMapping(originalPath, suffix, backupDir string) (*PathMapping, error) {
 	processedPath, err := pr.GenerateProcessedPath(originalPath, suffix)
 	if err != nil {
@@ -221,7 +221,7 @@ func (pr *PathResolver) CreatePathMapping(originalPath, suffix, backupDir string
 	return mapping, nil
 }
 
-// ValidatePathMapping validates that a path mapping maintains structure consistency
+// ValidatePathMapping validates that a path mapping maintains structure consistency.
 func (pr *PathResolver) ValidatePathMapping(mapping *PathMapping) error {
 	if mapping.IsGCS {
 		return pr.validateGCSMapping(mapping)
@@ -230,7 +230,7 @@ func (pr *PathResolver) ValidatePathMapping(mapping *PathMapping) error {
 	return pr.validateLocalMapping(mapping)
 }
 
-// validateGCSMapping validates GCS path mapping
+// validateGCSMapping validates GCS path mapping.
 func (pr *PathResolver) validateGCSMapping(mapping *PathMapping) error {
 	originalInfo, err := pr.ParseGCSPath(mapping.OriginalPath)
 	if err != nil {
@@ -263,7 +263,7 @@ func (pr *PathResolver) validateGCSMapping(mapping *PathMapping) error {
 	return nil
 }
 
-// validateLocalMapping validates local path mapping
+// validateLocalMapping validates local path mapping.
 func (pr *PathResolver) validateLocalMapping(mapping *PathMapping) error {
 	originalDir := filepath.Dir(mapping.OriginalPath)
 	processedDir := filepath.Dir(mapping.ProcessedPath)
@@ -286,7 +286,7 @@ func (pr *PathResolver) validateLocalMapping(mapping *PathMapping) error {
 	return nil
 }
 
-// GetRelativePath returns the relative path component of a full path
+// GetRelativePath returns the relative path component of a full path.
 func (pr *PathResolver) GetRelativePath(fullPath, basePath string) (string, error) {
 	if strings.HasPrefix(fullPath, "gs://") {
 		pathInfo, err := pr.ParseGCSPath(fullPath)
@@ -296,10 +296,15 @@ func (pr *PathResolver) GetRelativePath(fullPath, basePath string) (string, erro
 		return pathInfo.ObjectName, nil
 	}
 
-	return filepath.Rel(basePath, fullPath)
+	relativePath, err := filepath.Rel(basePath, fullPath)
+	if err != nil {
+		return "", fmt.Errorf("build relative path from %q to %q: %w", basePath, fullPath, err)
+	}
+
+	return relativePath, nil
 }
 
-// NormalizePath normalizes a path for consistent comparison
+// NormalizePath normalizes a path for consistent comparison.
 func (pr *PathResolver) NormalizePath(path string) string {
 	if strings.HasPrefix(path, "gs://") {
 		return strings.ToLower(path)
@@ -308,7 +313,7 @@ func (pr *PathResolver) NormalizePath(path string) string {
 	return filepath.Clean(path)
 }
 
-// PathExists checks if a path exists (local only, for GCS use GCS client)
+// PathExists checks if a path exists (local only, for GCS use GCS client).
 func (pr *PathResolver) PathExists(path string) bool {
 	if strings.HasPrefix(path, "gs://") {
 		// For GCS paths, this would require a GCS client check
@@ -319,7 +324,7 @@ func (pr *PathResolver) PathExists(path string) bool {
 	return err == nil
 }
 
-// ExtractBaseName extracts the base name from a path without extension
+// ExtractBaseName extracts the base name from a path without extension.
 func (pr *PathResolver) ExtractBaseName(path string) string {
 	if strings.HasPrefix(path, "gs://") {
 		pathInfo, err := pr.ParseGCSPath(path)
@@ -333,7 +338,7 @@ func (pr *PathResolver) ExtractBaseName(path string) string {
 	return strings.TrimSuffix(fileName, filepath.Ext(fileName))
 }
 
-// CombinePaths combines path components appropriately for the storage type
+// CombinePaths combines path components appropriately for the storage type.
 func (pr *PathResolver) CombinePaths(base, additional string) string {
 	if strings.HasPrefix(base, "gs://") {
 		// For GCS paths, use forward slashes

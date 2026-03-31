@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	"github.com/benjaminwestern/data-refinery/internal/config"
+	"github.com/benjaminwestern/data-refinery/internal/ingest"
 	"github.com/benjaminwestern/data-refinery/internal/rewrite"
+	"github.com/benjaminwestern/data-refinery/internal/safety"
 )
 
 type runtimeSafetyOptions struct {
@@ -45,7 +47,7 @@ func enforceTrustedMutationConfig(command string, cfg *config.Config, allowImpli
 func resolveLocalWriteTargets(approvedRoot string, unsafeBypass bool, targets []string) (string, []string, error) {
 	resolvedRoot, err := config.ResolveApprovedOutputRoot(approvedRoot)
 	if err != nil {
-		return "", nil, err
+		return "", nil, safety.Wrap(err, "resolve approved output root")
 	}
 
 	resolvedTargets := make([]string, 0, len(targets))
@@ -68,7 +70,7 @@ func resolveLocalWriteTargets(approvedRoot string, unsafeBypass bool, targets []
 
 	validatedTargets, err := config.ValidateLocalWriteTargets(resolvedRoot, targets)
 	if err != nil {
-		return "", nil, err
+		return "", nil, safety.Wrap(err, "validate local write targets")
 	}
 
 	return resolvedRoot, validatedTargets, nil
@@ -81,7 +83,7 @@ func printMutationSafetySummary(command string, cfg *config.Config, extraConfigP
 		if extraConfigPath == "" {
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "  rewrite config: %s\n", extraConfigPath)
+		fmt.Fprintf(os.Stderr, "  job config: %s\n", extraConfigPath)
 	}
 	fmt.Fprintf(os.Stderr, "  approved local output root: %s\n", approvedRoot)
 	if bypass {
@@ -189,6 +191,30 @@ func collectRewriteMutationTargets(cfg rewrite.Config) ([]string, []string) {
 	}
 
 	return dedupeStrings(localTargets), dedupeStrings(remoteTargets)
+}
+
+func collectIngestLocalWriteTargets(cfg ingest.Config) []string {
+	targets := []string{cfg.LogPath}
+	if cfg.OutputPath != "" && !strings.HasPrefix(cfg.OutputPath, "gs://") {
+		targets = append(targets, cfg.OutputPath)
+	}
+	if cfg.StatsOutputPath != "" && !strings.HasPrefix(cfg.StatsOutputPath, "gs://") {
+		targets = append(targets, cfg.StatsOutputPath)
+	}
+
+	return dedupeStrings(targets)
+}
+
+func collectIngestRemoteWriteTargets(cfg ingest.Config) []string {
+	var targets []string
+	if strings.HasPrefix(cfg.OutputPath, "gs://") {
+		targets = append(targets, cfg.OutputPath)
+	}
+	if strings.HasPrefix(cfg.StatsOutputPath, "gs://") {
+		targets = append(targets, cfg.StatsOutputPath)
+	}
+
+	return dedupeStrings(targets)
 }
 
 func normalizeConfigPath(path string) string {

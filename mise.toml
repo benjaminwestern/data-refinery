@@ -3,7 +3,161 @@ _.file = ".env"
 
 [tools]
 go = "1.25.0"
+python = "3.13"
+hk = "latest"
+"go:oss.terrastruct.com/d2" = { version = "latest" }
 
-"go:github.com/air-verse/air" = { version = "latest" }
 "go:github.com/golangci/golangci-lint/v2/cmd/golangci-lint" = { version = "latest" }
 "go:mvdan.cc/gofumpt" = { version = "latest" }
+
+[tasks."mise:validate"]
+description = "Validate the local mise task configuration"
+run = "mise tasks ls --local >/dev/null"
+
+[tasks."scripts:check"]
+description = "Validate repository helper scripts"
+run = "bash -n scripts/render_diagrams.sh && python3 -m py_compile scripts/generate_assets.py"
+
+[tasks."go:build"]
+description = "Build the data-refinery CLI binary in the repository root"
+run = "go build -o data-refinery ./cmd/data-refinery"
+
+[tasks.build]
+description = "Build the data-refinery CLI binary"
+depends = ["go:build"]
+run = "true"
+
+[tasks."go:test"]
+description = "Run the Go test suite"
+run = "go test ./..."
+
+[tasks.test]
+description = "Run the Go test suite"
+depends = ["go:test"]
+run = "true"
+
+[tasks."go:fmt"]
+description = "Apply Go formatters defined in .golangci.yaml"
+run = "golangci-lint fmt"
+
+[tasks."go:fmt:check"]
+description = "Check Go formatting against .golangci.yaml"
+run = "golangci-lint fmt --diff"
+
+[tasks."go:lint"]
+description = "Run golangci-lint using .golangci.yaml"
+run = "golangci-lint run"
+
+[tasks."cli:help"]
+description = "Print the top-level CLI help from source"
+run = "go run ./cmd/data-refinery --help"
+
+[tasks."cli:help:analysis"]
+description = "Print the analysis CLI help from source"
+run = "go run ./cmd/data-refinery analyse --help"
+
+[tasks."cli:help:ingest"]
+description = "Print the ingest CLI help from source"
+run = "go run ./cmd/data-refinery ingest --help"
+
+[tasks."cli:help:rewrite"]
+description = "Print the rewrite CLI help from source"
+run = "go run ./cmd/data-refinery rewrite --help"
+
+[tasks."check:repo:mise"]
+description = "Validate the local mise configuration"
+depends = ["mise:validate"]
+run = "true"
+
+[tasks."check:repo:hk"]
+description = "Validate the hk configuration"
+depends = ["hk:validate"]
+run = "true"
+
+[tasks."check:repo:scripts"]
+description = "Validate repository helper scripts"
+depends = ["scripts:check"]
+run = "true"
+
+[tasks."check:cli:help"]
+description = "Smoke test the CLI help surfaces"
+depends = ["cli:help", "cli:help:analysis", "cli:help:ingest", "cli:help:rewrite"]
+run = "true"
+
+[tasks."check:quick"]
+description = "Run the fast local verification suite"
+depends = [
+  "check:repo:mise",
+  "check:repo:hk",
+  "check:repo:scripts",
+  "go:fmt:check",
+  "go:lint",
+  "check:cli:help",
+]
+run = "true"
+
+[tasks.check]
+description = "Run the main local verification suite"
+depends = ["check:quick", "go:test"]
+run = "true"
+
+[tasks."check:ci"]
+description = "Run the local CI-equivalent verification suite"
+depends = ["check"]
+run = "true"
+
+[tasks."hk:validate"]
+description = "Validate the hk configuration"
+run = "hk validate"
+
+[tasks."hk:check"]
+description = "Run the default hk check profile"
+run = "hk check"
+
+[tasks."hk:check:all"]
+description = "Run hk checks against the full tracked workspace"
+run = "hk check --all"
+
+[tasks."hk:fix"]
+description = "Run the default hk fix profile"
+run = "hk fix"
+
+[tasks."hk:fix:all"]
+description = "Run hk fixes against the full tracked workspace"
+run = "hk fix --all"
+
+[tasks."hk:pre-commit"]
+description = "Run the hk pre-commit hook locally"
+run = "hk run pre-commit"
+
+[tasks."hk:pre-push"]
+description = "Run the hk pre-push hook locally"
+run = "hk run pre-push"
+
+[tasks."hk:test"]
+description = "Run hk step self-tests"
+run = "hk test"
+
+[tasks."hk:install"]
+description = "Install hk git hooks for this repository"
+run = """
+prefix="$(git rev-parse --show-prefix)"
+if [ -n "$prefix" ]; then
+  echo "hk install is intentionally blocked while this project is nested under another git repository ($prefix)." >&2
+  echo "Move it into its own repository, then rerun mise run hk:install." >&2
+  exit 1
+fi
+HK_MISE=1 hk install --mise
+"""
+
+[tasks.generate-assets]
+description = "Regenerate the README SVG banner and section headers"
+run = "python3 scripts/generate_assets.py"
+
+[tasks.render-diagrams]
+description = "Render D2 source diagrams in assets/ to SVG"
+run = "bash scripts/render_diagrams.sh"
+
+[tasks.docs-assets]
+description = "Regenerate README SVG assets and workflow diagrams"
+depends = ["generate-assets", "render-diagrams"]

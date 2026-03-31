@@ -1,3 +1,4 @@
+// Package headless runs analysis workflows without the interactive TUI.
 package headless
 
 import (
@@ -26,7 +27,7 @@ type Config struct {
 	CheckRow            bool
 	ShowFolderBreakdown bool
 	EnableTxtOutput     bool
-	EnableJsonOutput    bool
+	EnableJSONOutput    bool
 }
 
 // Run executes an analysis run without the TUI and writes results to stdout.
@@ -65,7 +66,7 @@ func Run(ctx context.Context, cfg *Config) {
 	analyserConfig.IsValidationRun = cfg.ValidateOnly
 	analyserConfig.ShowFolderBreakdown = cfg.ShowFolderBreakdown
 	analyserConfig.EnableTxtOutput = cfg.EnableTxtOutput
-	analyserConfig.EnableJsonOutput = cfg.EnableJsonOutput
+	analyserConfig.EnableJSONOutput = cfg.EnableJSONOutput
 
 	eng, err := analyser.New(&analyserConfig)
 	if err != nil {
@@ -76,17 +77,17 @@ func Run(ctx context.Context, cfg *Config) {
 	finalReport := eng.Run(ctx, sources)
 
 	finalReport.Summary.TotalElapsedTime = time.Since(startTime).Round(time.Second).String()
-	filenameBase := report.SaveAndLog(finalReport, cfg.LogPath, cfg.EnableTxtOutput, cfg.EnableJsonOutput, cfg.CheckKey, cfg.CheckRow, cfg.ShowFolderBreakdown)
+	filenameBase := report.SaveAndLog(finalReport, cfg.LogPath, cfg.EnableTxtOutput, cfg.EnableJSONOutput, cfg.CheckKey, cfg.CheckRow, cfg.ShowFolderBreakdown)
 	if err := output.WriteAdvancedArtifacts(cfg.LogPath, &analyserConfig, finalReport); err != nil {
 		fmt.Printf("Warning: failed to write advanced output files: %v\n", err)
 	}
 
-	if !cfg.ValidateOnly && (cfg.EnableTxtOutput || cfg.EnableJsonOutput) {
+	if !cfg.ValidateOnly && (cfg.EnableTxtOutput || cfg.EnableJSONOutput) {
 		var parts []string
 		if cfg.EnableTxtOutput {
 			parts = append(parts, ".txt")
 		}
-		if cfg.EnableJsonOutput {
+		if cfg.EnableJSONOutput {
 			parts = append(parts, ".json")
 		}
 		fmt.Printf("Analysis complete. Reports saved with base name '%s' and extension(s): %s\n", filenameBase, strings.Join(parts, ", "))

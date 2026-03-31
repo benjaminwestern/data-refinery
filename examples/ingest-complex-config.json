@@ -1,0 +1,11 @@
+{
+  "paths": [
+    "./ingest-complex-fixtures"
+  ],
+  "workers": 2,
+  "logPath": "../logs/ingest-complex",
+  "outputPath": "../logs/ingest-complex/unified-profiles.ndjson",
+  "mappingFile": "./ingest-complex-mappings.yaml",
+  "requireMappings": true,
+  "statsOutputPath": "../logs/ingest-complex/ingest-summary.json"
+}

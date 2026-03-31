@@ -16,19 +16,20 @@ import (
 	"github.com/benjaminwestern/data-refinery/internal/config"
 	"github.com/benjaminwestern/data-refinery/internal/path"
 	"github.com/benjaminwestern/data-refinery/internal/report"
+	"github.com/benjaminwestern/data-refinery/internal/safety"
 	"github.com/benjaminwestern/data-refinery/internal/search"
 	"github.com/benjaminwestern/data-refinery/internal/source"
 )
 
-// DeletionEngine handles deletion and purging operations
-type DeletionEngine struct {
+// Engine handles deletion and purging operations.
+type Engine struct {
 	rules             []config.DeletionRule
-	searchEngine      *search.SearchEngine
+	searchEngine      *search.Engine
 	jsonPathProcessor *path.JSONPathProcessor
 	outputPaths       map[string]*os.File
 	gcsWriters        map[string]*GCSWriter // For GCS write-back
 	outputMutex       sync.Mutex
-	stats             DeletionStats
+	stats             Stats
 	backupStorage     *backup.PurgedRowStorage
 	backupEnabled     bool
 	storageKeys       map[string]string // Maps source path to storage key
@@ -36,7 +37,7 @@ type DeletionEngine struct {
 	ctx               context.Context // Context for GCS operations
 }
 
-// GCSWriter provides streaming write capabilities for Google Cloud Storage objects
+// GCSWriter provides streaming write capabilities for Google Cloud Storage objects.
 type GCSWriter struct {
 	client     *storage.Client
 	bucket     string
@@ -45,7 +46,7 @@ type GCSWriter struct {
 	ctx        context.Context
 }
 
-// NewGCSWriter creates a new GCS writer for streaming uploads
+// NewGCSWriter creates a new GCS writer for streaming uploads.
 func NewGCSWriter(ctx context.Context, gcsPath string) (*GCSWriter, error) {
 	client, err := storage.NewClient(ctx)
 	if err != nil {
@@ -65,7 +66,7 @@ func NewGCSWriter(ctx context.Context, gcsPath string) (*GCSWriter, error) {
 	}, nil
 }
 
-// Open initializes the streaming writer to GCS
+// Open initializes the streaming writer to GCS.
 func (w *GCSWriter) Open() error {
 	bucketHandle := w.client.Bucket(w.bucket)
 	objectHandle := bucketHandle.Object(w.objectName)
@@ -82,25 +83,29 @@ func (w *GCSWriter) Open() error {
 	return nil
 }
 
-// Write writes data to the GCS object
+// Write writes data to the GCS object.
 func (w *GCSWriter) Write(data []byte) (int, error) {
 	if w.writer == nil {
 		return 0, fmt.Errorf("writer not opened")
 	}
-	return w.writer.Write(data)
+	n, err := w.writer.Write(data)
+	if err != nil {
+		return n, fmt.Errorf("write GCS object data: %w", err)
+	}
+	return n, nil
 }
 
-// WriteString writes a string to the GCS object
+// WriteString writes a string to the GCS object.
 func (w *GCSWriter) WriteString(s string) (int, error) {
 	return w.Write([]byte(s))
 }
 
-// WriteLine writes a line with newline to the GCS object (useful for NDJSON)
+// WriteLine writes a line with newline to the GCS object (useful for NDJSON).
 func (w *GCSWriter) WriteLine(line string) (int, error) {
 	return w.WriteString(line + "\n")
 }
 
-// Close closes the writer and finalizes the upload
+// Close closes the writer and finalizes the upload.
 func (w *GCSWriter) Close() error {
 	if w.writer != nil {
 		if err := w.writer.Close(); err != nil {
@@ -119,7 +124,7 @@ func (w *GCSWriter) Close() error {
 	return nil
 }
 
-// parseGCSPath extracts bucket and object name from gs:// path
+// parseGCSPath extracts bucket and object name from gs:// path.
 func parseGCSPath(gcsPath string) (bucket, objectName string, err error) {
 	if !strings.HasPrefix(gcsPath, "gs://") {
 		return "", "", fmt.Errorf("invalid GCS path, must start with gs://")
@@ -142,7 +147,8 @@ func parseGCSPath(gcsPath string) (bucket, objectName string, err error) {
 	return bucket, objectName, nil
 }
 
-type DeletionStats struct {
+// Stats captures aggregate counts for a deletion run.
+type Stats struct {
 	TotalRows       int64            `json:"totalRows"`
 	ProcessedRows   int64            `json:"processedRows"`
 	DeletedRows     int64            `json:"deletedRows"`
@@ -154,8 +160,8 @@ type DeletionStats struct {
 	EndTime         time.Time        `json:"endTime"`
 }
 
-// DeletionResult represents the result of a deletion operation
-type DeletionResult struct {
+// Result represents the result of a deletion operation.
+type Result struct {
 	Action      string               `json:"action"`
 	OriginalRow any                  `json:"originalRow"`
 	ModifiedRow any                  `json:"modifiedRow,omitempty"`
@@ -164,9 +170,9 @@ type DeletionResult struct {
 	RuleName    string               `json:"ruleName"`
 }
 
-// NewDeletionEngine creates a new deletion engine
-func NewDeletionEngine(rules []config.DeletionRule, searchEngine *search.SearchEngine) *DeletionEngine {
-	return &DeletionEngine{
+// NewDeletionEngine creates a new deletion engine.
+func NewDeletionEngine(rules []config.DeletionRule, searchEngine *search.Engine) *Engine {
+	return &Engine{
 		rules:             rules,
 		searchEngine:      searchEngine,
 		jsonPathProcessor: path.NewJSONPathProcessor(),
@@ -175,18 +181,18 @@ func NewDeletionEngine(rules []config.DeletionRule, searchEngine *search.SearchE
 		backupEnabled:     false,
 		storageKeys:       make(map[string]string),
 		ctx:               context.Background(),
-		stats: DeletionStats{
+		stats: Stats{
 			MatchesByTarget: make(map[string]int64),
 			StartTime:       time.Now(),
 		},
 	}
 }
 
-// NewDeletionEngineWithBackup creates a new deletion engine with backup enabled
-func NewDeletionEngineWithBackup(rules []config.DeletionRule, searchEngine *search.SearchEngine, backupPath string) *DeletionEngine {
+// NewDeletionEngineWithBackup creates a new deletion engine with backup enabled.
+func NewDeletionEngineWithBackup(rules []config.DeletionRule, searchEngine *search.Engine, backupPath string) *Engine {
 	backupStorage := backup.NewPurgedRowStorage(backupPath)
 
-	return &DeletionEngine{
+	return &Engine{
 		rules:             rules,
 		searchEngine:      searchEngine,
 		jsonPathProcessor: path.NewJSONPathProcessor(),
@@ -196,20 +202,20 @@ func NewDeletionEngineWithBackup(rules []config.DeletionRule, searchEngine *sear
 		backupEnabled:     true,
 		storageKeys:       make(map[string]string),
 		ctx:               context.Background(),
-		stats: DeletionStats{
+		stats: Stats{
 			MatchesByTarget: make(map[string]int64),
 			StartTime:       time.Now(),
 		},
 	}
 }
 
-// ProcessSource processes a source with deletion rules
-func (de *DeletionEngine) ProcessSource(ctx context.Context, src source.InputSource) error {
+// ProcessSource processes a source with deletion rules.
+func (de *Engine) ProcessSource(ctx context.Context, src source.InputSource) error {
 	reader, err := src.Open(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to open source %s: %w", src.Path(), err)
 	}
-	defer reader.Close()
+	defer safety.Close(reader, src.Path())
 
 	scanner := bufio.NewScanner(reader)
 	const maxCapacity = 4 * 1024 * 1024
@@ -220,7 +226,7 @@ func (de *DeletionEngine) ProcessSource(ctx context.Context, src source.InputSou
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("scan deletion source: %w", ctx.Err())
 		default:
 		}
 
@@ -256,18 +262,18 @@ func (de *DeletionEngine) ProcessSource(ctx context.Context, src source.InputSou
 }
 
 // ProcessRowData processes a single row with deletion rules
-// This method is used for integrated processing with the main analyser
-func (de *DeletionEngine) ProcessRowData(data report.JSONData, location report.LocationInfo) error {
+// This method is used for integrated processing with the main analyser.
+func (de *Engine) ProcessRowData(data report.JSONData, location report.LocationInfo) error {
 	de.stats.TotalRows++
 	return de.processRowWithMatches(data, location, false)
 }
 
-// processRow processes a single row with deletion rules
-func (de *DeletionEngine) processRow(data report.JSONData, location report.LocationInfo) error {
+// processRow processes a single row with deletion rules.
+func (de *Engine) processRow(data report.JSONData, location report.LocationInfo) error {
 	return de.processRowWithMatches(data, location, true)
 }
 
-func (de *DeletionEngine) processRowWithMatches(data report.JSONData, location report.LocationInfo, accumulateSearchResults bool) error {
+func (de *Engine) processRowWithMatches(data report.JSONData, location report.LocationInfo, accumulateSearchResults bool) error {
 	de.stats.ProcessedRows++
 
 	if de.searchEngine == nil {
@@ -317,8 +323,8 @@ func (de *DeletionEngine) processRowWithMatches(data report.JSONData, location r
 	return nil
 }
 
-// getOrCreateStorageKey gets or creates a storage key for a source path
-func (de *DeletionEngine) getOrCreateStorageKey(sourcePath string) (string, error) {
+// getOrCreateStorageKey gets or creates a storage key for a source path.
+func (de *Engine) getOrCreateStorageKey(sourcePath string) (string, error) {
 	de.storageKeysMutex.Lock()
 	defer de.storageKeysMutex.Unlock()
 
@@ -329,15 +335,15 @@ func (de *DeletionEngine) getOrCreateStorageKey(sourcePath string) (string, erro
 	// Initialize storage for this source
 	key, err := de.backupStorage.InitializeStorage(sourcePath, "deletion", "row_deletion")
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("initialize backup storage: %w", err)
 	}
 
 	de.storageKeys[sourcePath] = key
 	return key, nil
 }
 
-// backupRow backs up a row before deletion
-func (de *DeletionEngine) backupRow(data report.JSONData, location report.LocationInfo, action string) error {
+// backupRow backs up a row before deletion.
+func (de *Engine) backupRow(data report.JSONData, location report.LocationInfo, action string) error {
 	if !de.backupEnabled || de.backupStorage == nil {
 		return nil
 	}
@@ -353,11 +359,15 @@ func (de *DeletionEngine) backupRow(data report.JSONData, location report.Locati
 		return fmt.Errorf("failed to marshal data: %w", err)
 	}
 
-	return de.backupStorage.StorePurgedRow(storageKey, jsonData, location, action, nil)
+	if err := de.backupStorage.StorePurgedRow(storageKey, jsonData, location, action, nil); err != nil {
+		return fmt.Errorf("store purged row backup: %w", err)
+	}
+
+	return nil
 }
 
-// handleDeleteRow handles the delete_row action
-func (de *DeletionEngine) handleDeleteRow(data report.JSONData, matches []search.MatchResult, location report.LocationInfo, rule config.DeletionRule) error {
+// handleDeleteRow handles the delete_row action.
+func (de *Engine) handleDeleteRow(data report.JSONData, matches []search.MatchResult, location report.LocationInfo, rule config.DeletionRule) error {
 	// Backup the row before deletion if backup is enabled
 	if err := de.backupRow(data, location, "delete_row"); err != nil {
 		return fmt.Errorf("failed to backup row before deletion: %w", err)
@@ -368,7 +378,7 @@ func (de *DeletionEngine) handleDeleteRow(data report.JSONData, matches []search
 
 	// Optionally write to deletion log
 	if rule.OutputPath != "" {
-		result := DeletionResult{
+		result := Result{
 			Action:      "delete_row",
 			OriginalRow: data,
 			Matches:     matches,
@@ -384,8 +394,8 @@ func (de *DeletionEngine) handleDeleteRow(data report.JSONData, matches []search
 	return nil
 }
 
-// handleDeleteMatches handles the delete_matches action
-func (de *DeletionEngine) handleDeleteMatches(data report.JSONData, matches []search.MatchResult, location report.LocationInfo, rule config.DeletionRule) error {
+// handleDeleteMatches handles the delete_matches action.
+func (de *Engine) handleDeleteMatches(data report.JSONData, matches []search.MatchResult, location report.LocationInfo, rule config.DeletionRule) error {
 	originalData := de.copyData(data)
 	modified := false
 
@@ -400,7 +410,7 @@ func (de *DeletionEngine) handleDeleteMatches(data report.JSONData, matches []se
 
 		// Write modified row to output
 		if rule.OutputPath != "" {
-			result := DeletionResult{
+			result := Result{
 				Action:      "delete_matches",
 				OriginalRow: originalData,
 				ModifiedRow: data,
@@ -418,8 +428,8 @@ func (de *DeletionEngine) handleDeleteMatches(data report.JSONData, matches []se
 	return nil
 }
 
-// handleMarkForDeletion handles the mark_for_deletion action
-func (de *DeletionEngine) handleMarkForDeletion(data report.JSONData, matches []search.MatchResult, location report.LocationInfo, rule config.DeletionRule) error {
+// handleMarkForDeletion handles the mark_for_deletion action.
+func (de *Engine) handleMarkForDeletion(data report.JSONData, matches []search.MatchResult, location report.LocationInfo, rule config.DeletionRule) error {
 	// Add metadata to mark for deletion
 	data["_marked_for_deletion"] = true
 	data["_deletion_reason"] = rule.SearchTarget
@@ -429,7 +439,7 @@ func (de *DeletionEngine) handleMarkForDeletion(data report.JSONData, matches []
 
 	// Write marked row to output
 	if rule.OutputPath != "" {
-		result := DeletionResult{
+		result := Result{
 			Action:      "mark_for_deletion",
 			OriginalRow: data,
 			Matches:     matches,
@@ -445,8 +455,8 @@ func (de *DeletionEngine) handleMarkForDeletion(data report.JSONData, matches []
 	return nil
 }
 
-// handleDeleteSubKey handles the delete_sub_key action
-func (de *DeletionEngine) handleDeleteSubKey(data report.JSONData, matches []search.MatchResult, location report.LocationInfo, rule config.DeletionRule) error {
+// handleDeleteSubKey handles the delete_sub_key action.
+func (de *Engine) handleDeleteSubKey(data report.JSONData, matches []search.MatchResult, location report.LocationInfo, rule config.DeletionRule) error {
 	if rule.SubKeyPath == "" {
 		return fmt.Errorf("sub_key_path is required for delete_sub_key action")
 	}
@@ -464,7 +474,7 @@ func (de *DeletionEngine) handleDeleteSubKey(data report.JSONData, matches []sea
 
 		// Write modified row to output
 		if rule.OutputPath != "" {
-			result := DeletionResult{
+			result := Result{
 				Action:      "delete_sub_key",
 				OriginalRow: originalData,
 				ModifiedRow: data,
@@ -482,8 +492,8 @@ func (de *DeletionEngine) handleDeleteSubKey(data report.JSONData, matches []sea
 	return nil
 }
 
-// deleteFromPath removes data at the specified path
-func (de *DeletionEngine) deleteFromPath(data report.JSONData, path string) bool {
+// deleteFromPath removes data at the specified path.
+func (de *Engine) deleteFromPath(data report.JSONData, path string) bool {
 	if path == "" {
 		return false
 	}
@@ -502,8 +512,8 @@ func (de *DeletionEngine) deleteFromPath(data report.JSONData, path string) bool
 	return result
 }
 
-// deleteFromNestedPath removes data from nested paths
-func (de *DeletionEngine) deleteFromNestedPath(data any, path string) bool {
+// deleteFromNestedPath removes data from nested paths.
+func (de *Engine) deleteFromNestedPath(data any, path string) bool {
 	if path == "" {
 		return false
 	}
@@ -567,13 +577,13 @@ func (de *DeletionEngine) deleteFromNestedPath(data any, path string) bool {
 	return false
 }
 
-// pathPart represents a part of a path
+// pathPart represents a part of a path.
 type pathPart struct {
 	key   string
 	index int
 }
 
-// parsePath parses a path string into parts
+// parsePath parses a path string into parts.
 func parsePath(path string) []pathPart {
 	var parts []pathPart
 	// This is a simplified path parser
@@ -590,75 +600,96 @@ func parsePath(path string) []pathPart {
 	return parts
 }
 
-// writeToOutput writes data to the specified output file or GCS location
-func (de *DeletionEngine) writeToOutput(outputPath string, data any) error {
+// writeToOutput writes data to the specified output file or GCS location.
+func (de *Engine) writeToOutput(outputPath string, data any) error {
 	de.outputMutex.Lock()
 	defer de.outputMutex.Unlock()
 
-	// Check if this is a GCS path
 	if strings.HasPrefix(outputPath, "gs://") {
-		// Handle GCS output
-		gcsWriter, exists := de.gcsWriters[outputPath]
-		if !exists {
-			var err error
-			gcsWriter, err = NewGCSWriter(de.ctx, outputPath)
-			if err != nil {
-				return fmt.Errorf("failed to create GCS writer for %s: %w", outputPath, err)
-			}
+		return de.writeToGCSOutputLocked(outputPath, data)
+	}
 
-			if err := gcsWriter.Open(); err != nil {
-				return fmt.Errorf("failed to open GCS writer for %s: %w", outputPath, err)
-			}
+	return de.writeToLocalOutputLocked(outputPath, data)
+}
 
-			de.gcsWriters[outputPath] = gcsWriter
-		}
+func (de *Engine) writeToGCSOutputLocked(outputPath string, data any) error {
+	gcsWriter, err := de.gcsWriterForOutputLocked(outputPath)
+	if err != nil {
+		return err
+	}
 
-		jsonData, err := json.Marshal(data)
-		if err != nil {
-			return fmt.Errorf("failed to marshal data: %w", err)
-		}
-
-		if _, err := gcsWriter.WriteLine(string(jsonData)); err != nil {
-			return fmt.Errorf("failed to write to GCS output: %w", err)
-		}
-	} else {
-		// Handle local file output
-		file, exists := de.outputPaths[outputPath]
-		if !exists {
-			if err := os.MkdirAll(filepath.Dir(outputPath), 0o700); err != nil {
-				return fmt.Errorf("failed to create output directory for %s: %w", outputPath, err)
-			}
-			var err error
-			file, err = os.OpenFile(outputPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
-			if err != nil {
-				return fmt.Errorf("failed to create output file %s: %w", outputPath, err)
-			}
-			if err := file.Chmod(0o600); err != nil {
-				file.Close()
-				return fmt.Errorf("failed to set output file permissions for %s: %w", outputPath, err)
-			}
-			de.outputPaths[outputPath] = file
-		}
-
-		jsonData, err := json.Marshal(data)
-		if err != nil {
-			return fmt.Errorf("failed to marshal data: %w", err)
-		}
-
-		if _, err := file.Write(jsonData); err != nil {
-			return fmt.Errorf("failed to write to output file: %w", err)
-		}
-
-		if _, err := file.WriteString("\n"); err != nil {
-			return fmt.Errorf("failed to write newline to output file: %w", err)
-		}
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal data: %w", err)
+	}
+	if _, err := gcsWriter.WriteLine(string(jsonData)); err != nil {
+		return fmt.Errorf("failed to write to GCS output: %w", err)
 	}
 
 	return nil
 }
 
-// copyData creates a deep copy of the data
-func (de *DeletionEngine) copyData(data report.JSONData) report.JSONData {
+func (de *Engine) gcsWriterForOutputLocked(outputPath string) (*GCSWriter, error) {
+	if gcsWriter, exists := de.gcsWriters[outputPath]; exists {
+		return gcsWriter, nil
+	}
+
+	gcsWriter, err := NewGCSWriter(de.ctx, outputPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GCS writer for %s: %w", outputPath, err)
+	}
+	if err := gcsWriter.Open(); err != nil {
+		return nil, fmt.Errorf("failed to open GCS writer for %s: %w", outputPath, err)
+	}
+
+	de.gcsWriters[outputPath] = gcsWriter
+	return gcsWriter, nil
+}
+
+func (de *Engine) writeToLocalOutputLocked(outputPath string, data any) error {
+	file, err := de.localOutputFileLocked(outputPath)
+	if err != nil {
+		return err
+	}
+
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal data: %w", err)
+	}
+	if _, err := file.Write(jsonData); err != nil {
+		return fmt.Errorf("failed to write to output file: %w", err)
+	}
+	if _, err := file.WriteString("\n"); err != nil {
+		return fmt.Errorf("failed to write newline to output file: %w", err)
+	}
+
+	return nil
+}
+
+func (de *Engine) localOutputFileLocked(outputPath string) (*os.File, error) {
+	if file, exists := de.outputPaths[outputPath]; exists {
+		return file, nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o700); err != nil {
+		return nil, fmt.Errorf("failed to create output directory for %s: %w", outputPath, err)
+	}
+
+	file, err := os.OpenFile(outputPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create output file %s: %w", outputPath, err)
+	}
+	if err := file.Chmod(0o600); err != nil {
+		safety.Close(file, outputPath)
+		return nil, fmt.Errorf("failed to set output file permissions for %s: %w", outputPath, err)
+	}
+
+	de.outputPaths[outputPath] = file
+	return file, nil
+}
+
+// copyData creates a deep copy of the data.
+func (de *Engine) copyData(data report.JSONData) report.JSONData {
 	result := make(report.JSONData)
 	for k, v := range data {
 		result[k] = de.copyValue(v)
@@ -666,8 +697,8 @@ func (de *DeletionEngine) copyData(data report.JSONData) report.JSONData {
 	return result
 }
 
-// copyValue creates a deep copy of a value
-func (de *DeletionEngine) copyValue(value any) any {
+// copyValue creates a deep copy of a value.
+func (de *Engine) copyValue(value any) any {
 	switch v := value.(type) {
 	case map[string]any:
 		result := make(map[string]any)
@@ -686,8 +717,8 @@ func (de *DeletionEngine) copyValue(value any) any {
 	}
 }
 
-// Close closes all output files and finalizes statistics
-func (de *DeletionEngine) Close() error {
+// Close closes all output files and finalizes statistics.
+func (de *Engine) Close() error {
 	// Finalize backup storage if enabled
 	if de.backupEnabled && de.backupStorage != nil {
 		// Finalize all storage keys
@@ -732,8 +763,8 @@ func (de *DeletionEngine) Close() error {
 	return nil
 }
 
-// GetStats returns the current deletion statistics
-func (de *DeletionEngine) GetStats() DeletionStats {
+// GetStats returns the current deletion statistics.
+func (de *Engine) GetStats() Stats {
 	stats := de.stats
 	if stats.EndTime.IsZero() {
 		stats.EndTime = time.Now()
@@ -741,21 +772,21 @@ func (de *DeletionEngine) GetStats() DeletionStats {
 	return stats
 }
 
-// BatchDeletionProcessor processes multiple sources with deletion rules
+// BatchDeletionProcessor processes multiple sources with deletion rules.
 type BatchDeletionProcessor struct {
-	engine  *DeletionEngine
+	engine  *Engine
 	workers int
 }
 
-// NewBatchDeletionProcessor creates a new batch deletion processor
-func NewBatchDeletionProcessor(engine *DeletionEngine, workers int) *BatchDeletionProcessor {
+// NewBatchDeletionProcessor creates a new batch deletion processor.
+func NewBatchDeletionProcessor(engine *Engine, workers int) *BatchDeletionProcessor {
 	return &BatchDeletionProcessor{
 		engine:  engine,
 		workers: workers,
 	}
 }
 
-// ProcessSources processes multiple sources in parallel
+// ProcessSources processes multiple sources in parallel.
 func (bdp *BatchDeletionProcessor) ProcessSources(ctx context.Context, sources []source.InputSource) error {
 	if len(sources) == 0 {
 		return nil
@@ -807,56 +838,30 @@ func (bdp *BatchDeletionProcessor) ProcessSources(ctx context.Context, sources [
 	return nil
 }
 
-// Utility functions
-
-// contains checks if a string contains a substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || (len(s) > len(substr) &&
-		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
-			findSubstring(s, substr) != -1)))
+// ReportGenerator generates reports for deletion operations.
+type ReportGenerator struct {
+	stats   Stats
+	results []Result
 }
 
-// findSubstring finds a substring in a string
-func findSubstring(s, substr string) int {
-	if len(substr) == 0 {
-		return 0
-	}
-	if len(s) < len(substr) {
-		return -1
-	}
-
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
-}
-
-// DeletionReportGenerator generates reports for deletion operations
-type DeletionReportGenerator struct {
-	stats   DeletionStats
-	results []DeletionResult
-}
-
-// NewDeletionReportGenerator creates a new deletion report generator
-func NewDeletionReportGenerator(stats DeletionStats) *DeletionReportGenerator {
-	return &DeletionReportGenerator{
+// NewDeletionReportGenerator creates a new deletion report generator.
+func NewDeletionReportGenerator(stats Stats) *ReportGenerator {
+	return &ReportGenerator{
 		stats:   stats,
-		results: make([]DeletionResult, 0),
+		results: make([]Result, 0),
 	}
 }
 
-// AddResult adds a deletion result to the report
-func (drg *DeletionReportGenerator) AddResult(result DeletionResult) {
+// AddResult adds a deletion result to the report.
+func (drg *ReportGenerator) AddResult(result Result) {
 	drg.results = append(drg.results, result)
 }
 
-// GenerateReport generates a comprehensive deletion report
-func (drg *DeletionReportGenerator) GenerateReport() DeletionReport {
+// GenerateReport generates a comprehensive deletion report.
+func (drg *ReportGenerator) GenerateReport() Report {
 	duration := drg.stats.EndTime.Sub(drg.stats.StartTime)
 
-	return DeletionReport{
+	return Report{
 		Stats:       drg.stats,
 		Results:     drg.results,
 		Duration:    duration,
@@ -864,16 +869,16 @@ func (drg *DeletionReportGenerator) GenerateReport() DeletionReport {
 	}
 }
 
-// DeletionReport represents a comprehensive deletion report
-type DeletionReport struct {
-	Stats       DeletionStats    `json:"stats"`
-	Results     []DeletionResult `json:"results"`
-	Duration    time.Duration    `json:"duration"`
-	GeneratedAt time.Time        `json:"generatedAt"`
+// Report represents a comprehensive deletion report.
+type Report struct {
+	Stats       Stats         `json:"stats"`
+	Results     []Result      `json:"results"`
+	Duration    time.Duration `json:"duration"`
+	GeneratedAt time.Time     `json:"generatedAt"`
 }
 
-// SaveReport saves the deletion report to a file
-func (dr *DeletionReport) SaveReport(filename string) error {
+// SaveReport saves the deletion report to a file.
+func (dr *Report) SaveReport(filename string) error {
 	data, err := json.MarshalIndent(dr, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal report: %w", err)
@@ -883,5 +888,9 @@ func (dr *DeletionReport) SaveReport(filename string) error {
 		return fmt.Errorf("failed to create report directory: %w", err)
 	}
 
-	return os.WriteFile(filename, data, 0o600)
+	if err := os.WriteFile(filename, data, 0o600); err != nil {
+		return fmt.Errorf("write deletion report: %w", err)
+	}
+
+	return nil
 }

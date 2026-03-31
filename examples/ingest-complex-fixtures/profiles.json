@@ -1,0 +1,58 @@
+[
+  {
+    "person": {
+      "id": "9101",
+      "profile": {
+        "first_name": "Harper",
+        "last_name": "Lane",
+        "email": "harper@example.com"
+      },
+      "contact": {
+        "mobile": "0400000010",
+        "postcode": "3006"
+      },
+      "preferences": {
+        "channel": "sms",
+        "segment": "renewal"
+      },
+      "loyalty": {
+        "tier": "gold",
+        "points": 1200
+      }
+    },
+    "metadata": {
+      "source": "crm-sync",
+      "created_at": "2026-01-10T09:00:00Z",
+      "updated_at": "2026-02-01T18:30:00Z",
+      "import_batch": "batch-001"
+    }
+  },
+  {
+    "person": {
+      "id": "9102",
+      "profile": {
+        "first_name": "Indy",
+        "last_name": "Cross",
+        "email": "indy@example.com"
+      },
+      "contact": {
+        "mobile": "0400000011",
+        "postcode": "3007"
+      },
+      "preferences": {
+        "channel": "email",
+        "segment": "winback"
+      },
+      "loyalty": {
+        "tier": "silver",
+        "points": 450
+      }
+    },
+    "metadata": {
+      "source": "crm-sync",
+      "created_at": "2026-01-11T09:00:00Z",
+      "updated_at": "2026-02-02T18:30:00Z",
+      "import_batch": "batch-001"
+    }
+  }
+]

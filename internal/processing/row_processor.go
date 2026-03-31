@@ -1,4 +1,4 @@
-// internal/processing/row_processor.go
+// Package processing contains row-level analysis, recovery, and report assembly helpers.
 package processing
 
 import (
@@ -16,25 +16,25 @@ import (
 	"github.com/benjaminwestern/data-refinery/internal/search"
 )
 
-// RowProcessor defines the interface for processing individual rows of data
+// RowProcessor defines the interface for processing individual rows of data.
 type RowProcessor interface {
 	ProcessRow(data report.JSONData, location report.LocationInfo, rowHasher hash.Hash64) error
 	Close() error
 }
 
-// RowProcessorConfig holds configuration for row processing
+// RowProcessorConfig holds configuration for row processing.
 type RowProcessorConfig struct {
 	UniqueKey       string
 	CheckKey        bool
 	CheckRow        bool
 	ValidateOnly    bool
-	SearchEngine    *search.SearchEngine
-	SchemaAnalyzer  *schema.SchemaAnalyzer
-	DeletionEngine  *deletion.DeletionEngine
+	SearchEngine    *search.Engine
+	SchemaAnalyzer  *schema.Analyzer
+	DeletionEngine  *deletion.Engine
 	SelectiveHasher *hasher.SelectiveHasher
 }
 
-// DefaultRowProcessor implements the RowProcessor interface
+// DefaultRowProcessor implements the RowProcessor interface.
 type DefaultRowProcessor struct {
 	config *RowProcessorConfig
 
@@ -51,7 +51,7 @@ type DefaultRowProcessor struct {
 	filesProcessedMutex     sync.Mutex
 }
 
-// NewRowProcessor creates a new row processor with the given configuration
+// NewRowProcessor creates a new row processor with the given configuration.
 func NewRowProcessor(config *RowProcessorConfig) *DefaultRowProcessor {
 	return &DefaultRowProcessor{
 		config:                  config,
@@ -63,7 +63,7 @@ func NewRowProcessor(config *RowProcessorConfig) *DefaultRowProcessor {
 	}
 }
 
-// ProcessRow processes a single row of data through all configured processors
+// ProcessRow processes a single row of data through all configured processors.
 func (rp *DefaultRowProcessor) ProcessRow(data report.JSONData, location report.LocationInfo, rowHasher hash.Hash64) error {
 	// Schema discovery
 	if rp.config.SchemaAnalyzer != nil {
@@ -79,7 +79,7 @@ func (rp *DefaultRowProcessor) ProcessRow(data report.JSONData, location report.
 	if rp.config.DeletionEngine != nil {
 		if err := rp.config.DeletionEngine.ProcessRowData(data, location); err != nil {
 			log.Printf("Error processing row with deletion engine: %v\n", err)
-			return err
+			return fmt.Errorf("process row data with deletion engine: %w", err)
 		}
 	}
 
@@ -124,7 +124,7 @@ func folderFromPath(filePath string) string {
 	return filepath.Dir(filePath)
 }
 
-// processKeyCheck handles key-based duplicate detection
+// processKeyCheck handles key-based duplicate detection.
 func (rp *DefaultRowProcessor) processKeyCheck(data report.JSONData, location report.LocationInfo) error {
 	if _, ok := data[rp.config.UniqueKey]; ok {
 		dir := folderFromPath(location.FilePath)
@@ -144,7 +144,7 @@ func (rp *DefaultRowProcessor) processKeyCheck(data report.JSONData, location re
 	return nil
 }
 
-// processRowHash handles row-based duplicate detection
+// processRowHash handles row-based duplicate detection.
 func (rp *DefaultRowProcessor) processRowHash(data report.JSONData, location report.LocationInfo, rowHasher hash.Hash64) error {
 	var hashStr string
 
@@ -166,7 +166,7 @@ func (rp *DefaultRowProcessor) processRowHash(data report.JSONData, location rep
 	return nil
 }
 
-// hashMapToHasher converts a map to a consistent hash
+// hashMapToHasher converts a map to a consistent hash.
 func (rp *DefaultRowProcessor) hashMapToHasher(data map[string]interface{}, hasher hash.Hash64) error {
 	hasher.Reset()
 
@@ -186,14 +186,18 @@ func (rp *DefaultRowProcessor) hashMapToHasher(data map[string]interface{}, hash
 	}
 
 	for _, key := range keys {
-		hasher.Write([]byte(key))
-		hasher.Write([]byte(fmt.Sprintf("%v", data[key])))
+		if _, err := hasher.Write([]byte(key)); err != nil {
+			return fmt.Errorf("write key into row hasher: %w", err)
+		}
+		if _, err := fmt.Fprintf(hasher, "%v", data[key]); err != nil {
+			return fmt.Errorf("write value into row hasher: %w", err)
+		}
 	}
 
 	return nil
 }
 
-// GetIDLocations returns the current ID locations for duplicate detection
+// GetIDLocations returns the current ID locations for duplicate detection.
 func (rp *DefaultRowProcessor) GetIDLocations() map[string][]report.LocationInfo {
 	rp.idMutex.Lock()
 	defer rp.idMutex.Unlock()
@@ -205,7 +209,7 @@ func (rp *DefaultRowProcessor) GetIDLocations() map[string][]report.LocationInfo
 	return result
 }
 
-// GetRowHashes returns the current row hashes for duplicate detection
+// GetRowHashes returns the current row hashes for duplicate detection.
 func (rp *DefaultRowProcessor) GetRowHashes() map[string][]report.LocationInfo {
 	rp.rowMutex.Lock()
 	defer rp.rowMutex.Unlock()
@@ -217,7 +221,7 @@ func (rp *DefaultRowProcessor) GetRowHashes() map[string][]report.LocationInfo {
 	return result
 }
 
-// GetKeysFoundPerFolder returns the keys found statistics per folder
+// GetKeysFoundPerFolder returns the keys found statistics per folder.
 func (rp *DefaultRowProcessor) GetKeysFoundPerFolder() map[string]int64 {
 	rp.keysFoundMutex.Lock()
 	defer rp.keysFoundMutex.Unlock()
@@ -229,7 +233,7 @@ func (rp *DefaultRowProcessor) GetKeysFoundPerFolder() map[string]int64 {
 	return result
 }
 
-// GetRowsProcessedPerFolder returns the rows processed statistics per folder
+// GetRowsProcessedPerFolder returns the rows processed statistics per folder.
 func (rp *DefaultRowProcessor) GetRowsProcessedPerFolder() map[string]int64 {
 	rp.rowsProcessedMutex.Lock()
 	defer rp.rowsProcessedMutex.Unlock()
@@ -241,7 +245,7 @@ func (rp *DefaultRowProcessor) GetRowsProcessedPerFolder() map[string]int64 {
 	return result
 }
 
-// GetFilesProcessedPerFolder returns the files processed statistics per folder
+// GetFilesProcessedPerFolder returns the files processed statistics per folder.
 func (rp *DefaultRowProcessor) GetFilesProcessedPerFolder() map[string]int {
 	rp.filesProcessedMutex.Lock()
 	defer rp.filesProcessedMutex.Unlock()
@@ -253,7 +257,7 @@ func (rp *DefaultRowProcessor) GetFilesProcessedPerFolder() map[string]int {
 	return result
 }
 
-// Close cleans up resources used by the row processor
+// Close cleans up resources used by the row processor.
 func (rp *DefaultRowProcessor) Close() error {
 	// Clear all maps to free memory
 	rp.idMutex.Lock()

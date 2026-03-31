@@ -31,8 +31,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.EnableTxtOutput {
 		t.Error("Expected EnableTxtOutput to be false")
 	}
-	if cfg.EnableJsonOutput {
-		t.Error("Expected EnableJsonOutput to be false")
+	if cfg.EnableJSONOutput {
+		t.Error("Expected EnableJSONOutput to be false")
 	}
 	if cfg.PurgeIDs {
 		t.Error("Expected PurgeIDs to be false")
@@ -79,7 +79,7 @@ func TestLoad_ValidConfig(t *testing.T) {
 		CheckRow:            true,
 		ShowFolderBreakdown: false,
 		EnableTxtOutput:     true,
-		EnableJsonOutput:    true,
+		EnableJSONOutput:    true,
 		PurgeIDs:            true,
 		PurgeRows:           false,
 	}
@@ -343,7 +343,7 @@ func TestSave(t *testing.T) {
 		CheckRow:            true,
 		ShowFolderBreakdown: false,
 		EnableTxtOutput:     true,
-		EnableJsonOutput:    true,
+		EnableJSONOutput:    true,
 		PurgeIDs:            true,
 		PurgeRows:           false,
 	}

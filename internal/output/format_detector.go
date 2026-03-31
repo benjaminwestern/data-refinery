@@ -1,4 +1,4 @@
-// internal/output/format_detector.go
+// Package output detects and writes analysis and ingest artefact formats.
 package output
 
 import (
@@ -9,9 +9,10 @@ import (
 	"strings"
 )
 
-// FileFormat represents the detected file format
+// FileFormat represents the detected file format.
 type FileFormat string
 
+// FileFormat values describe the supported JSON-family encodings.
 const (
 	FormatJSON    FileFormat = "json"
 	FormatNDJSON  FileFormat = "ndjson"
@@ -19,13 +20,24 @@ const (
 	FormatUnknown FileFormat = "unknown"
 )
 
-// FormatDetector detects and validates JSON file formats
+const (
+	formatCSV            = "csv"
+	extensionJSON        = ".json"
+	extensionNDJSON      = ".ndjson"
+	extensionJSONL       = ".jsonl"
+	contentTypeJSON      = "application/json"
+	contentTypeNDJSON    = "application/x-ndjson"
+	contentTypeJSONLines = "application/jsonlines"
+	contentTypeBinary    = "application/octet-stream"
+)
+
+// FormatDetector detects and validates JSON file formats.
 type FormatDetector struct {
 	samplesChecked int
 	maxSamples     int
 }
 
-// NewFormatDetector creates a new format detector
+// NewFormatDetector creates a new format detector.
 func NewFormatDetector(maxSamples int) *FormatDetector {
 	if maxSamples <= 0 {
 		maxSamples = 100 // Default sample size
@@ -35,7 +47,7 @@ func NewFormatDetector(maxSamples int) *FormatDetector {
 	}
 }
 
-// DetectFormat detects the format of a file by analyzing its content
+// DetectFormat detects the format of a file by analyzing its content.
 func (fd *FormatDetector) DetectFormat(reader io.Reader) (FileFormat, error) {
 	scanner := bufio.NewScanner(reader)
 
@@ -62,7 +74,7 @@ func (fd *FormatDetector) DetectFormat(reader io.Reader) (FileFormat, error) {
 	return fd.analyzeLines(lines)
 }
 
-// DetectFormatFromPath detects format from file path extension
+// DetectFormatFromPath detects format from file path extension.
 func (fd *FormatDetector) DetectFormatFromPath(path string) FileFormat {
 	lowerPath := strings.ToLower(path)
 
@@ -77,7 +89,7 @@ func (fd *FormatDetector) DetectFormatFromPath(path string) FileFormat {
 	return FormatUnknown
 }
 
-// analyzeLines analyzes the content lines to determine format
+// analyzeLines analyzes the content lines to determine format.
 func (fd *FormatDetector) analyzeLines(lines []string) (FileFormat, error) {
 	if len(lines) == 0 {
 		return FormatUnknown, fmt.Errorf("no content to analyze")
@@ -96,7 +108,7 @@ func (fd *FormatDetector) analyzeLines(lines []string) (FileFormat, error) {
 	return FormatUnknown, fmt.Errorf("unable to determine file format")
 }
 
-// isSingleJSONDocument checks if the content represents a single JSON document
+// isSingleJSONDocument checks if the content represents a single JSON document.
 func (fd *FormatDetector) isSingleJSONDocument(lines []string) bool {
 	// Join all lines and try to parse as a single JSON document
 	content := strings.Join(lines, "")
@@ -118,7 +130,7 @@ func (fd *FormatDetector) isSingleJSONDocument(lines []string) bool {
 	return isObject
 }
 
-// isNDJSON checks if the content represents NDJSON/JSONL format
+// isNDJSON checks if the content represents NDJSON/JSONL format.
 func (fd *FormatDetector) isNDJSON(lines []string) bool {
 	validJSONLines := 0
 
@@ -144,7 +156,7 @@ func (fd *FormatDetector) isNDJSON(lines []string) bool {
 	return validJSONLines > 0 && validJSONLines >= len(lines)/2
 }
 
-// FormatInfo contains detailed information about the detected format
+// FormatInfo contains detailed information about the detected format.
 type FormatInfo struct {
 	Format      FileFormat
 	LineCount   int
@@ -154,7 +166,7 @@ type FormatInfo struct {
 	Description string
 }
 
-// GetFormatInfo returns detailed information about the detected format
+// GetFormatInfo returns detailed information about the detected format.
 func (fd *FormatDetector) GetFormatInfo(reader io.Reader, path string) (*FormatInfo, error) {
 	contentFormat, err := fd.DetectFormat(reader)
 	if err != nil {
@@ -178,27 +190,27 @@ func (fd *FormatDetector) GetFormatInfo(reader io.Reader, path string) (*FormatI
 	// Set format-specific details
 	switch finalFormat {
 	case FormatJSON:
-		info.Extension = ".json"
-		info.ContentType = "application/json"
+		info.Extension = extensionJSON
+		info.ContentType = contentTypeJSON
 		info.Description = "Single JSON document"
 	case FormatNDJSON:
-		info.Extension = ".ndjson"
-		info.ContentType = "application/x-ndjson"
+		info.Extension = extensionNDJSON
+		info.ContentType = contentTypeNDJSON
 		info.Description = "Newline-delimited JSON"
 	case FormatJSONL:
-		info.Extension = ".jsonl"
-		info.ContentType = "application/jsonlines"
+		info.Extension = extensionJSONL
+		info.ContentType = contentTypeJSONLines
 		info.Description = "JSON Lines format"
-	default:
+	case FormatUnknown:
 		info.Extension = ""
-		info.ContentType = "application/octet-stream"
+		info.ContentType = contentTypeBinary
 		info.Description = "Unknown format"
 	}
 
 	return info, nil
 }
 
-// ValidateFormat validates that a file matches the expected format
+// ValidateFormat validates that a file matches the expected format.
 func (fd *FormatDetector) ValidateFormat(reader io.Reader, expectedFormat FileFormat) error {
 	detectedFormat, err := fd.DetectFormat(reader)
 	if err != nil {
@@ -218,47 +230,51 @@ func (fd *FormatDetector) ValidateFormat(reader io.Reader, expectedFormat FileFo
 	return nil
 }
 
-// GetRecommendedExtension returns the recommended file extension for a format
+// GetRecommendedExtension returns the recommended file extension for a format.
 func (fd *FormatDetector) GetRecommendedExtension(format FileFormat) string {
 	switch format {
 	case FormatJSON:
-		return ".json"
+		return extensionJSON
 	case FormatNDJSON:
-		return ".ndjson"
+		return extensionNDJSON
 	case FormatJSONL:
-		return ".jsonl"
-	default:
-		return ".json" // Default fallback
+		return extensionJSONL
+	case FormatUnknown:
+		return extensionJSON // Default fallback
 	}
+
+	return extensionJSON
 }
 
-// GetContentType returns the MIME content type for a format
+// GetContentType returns the MIME content type for a format.
 func (fd *FormatDetector) GetContentType(format FileFormat) string {
 	switch format {
 	case FormatJSON:
-		return "application/json"
+		return contentTypeJSON
 	case FormatNDJSON:
-		return "application/x-ndjson"
+		return contentTypeNDJSON
 	case FormatJSONL:
-		return "application/jsonlines"
-	default:
-		return "application/octet-stream"
+		return contentTypeJSONLines
+	case FormatUnknown:
+		return contentTypeBinary
 	}
+
+	return contentTypeBinary
 }
 
-// FormatPreserver ensures format consistency across operations
+// FormatPreserver ensures format consistency across operations.
 type FormatPreserver struct {
 	detector *FormatDetector
 }
 
-// NewFormatPreserver creates a new format preserver
+// NewFormatPreserver creates a new format preserver.
 func NewFormatPreserver() *FormatPreserver {
 	return &FormatPreserver{
 		detector: NewFormatDetector(100),
 	}
 }
 
-// PreserveFormat ensures the output format matches the input format
+// PreserveFormat ensures the output format matches the input format.
 func (fp *FormatPreserver) PreserveFormat(inputPath, outputPath string, inputReader io.Reader) (*FormatInfo, error) {
 	// Detect format from input
 	formatInfo, err := fp.detector.GetFormatInfo(inputReader, inputPath)
@@ -276,7 +292,7 @@ func (fp *FormatPreserver) PreserveFormat(inputPath, outputPath string, inputRea
 	return formatInfo, nil
 }
 
-// GenerateOutputPath generates an output path that preserves the input format
+// GenerateOutputPath generates an output path that preserves the input format.
 func (fp *FormatPreserver) GenerateOutputPath(inputPath, outputDir, suffix string) (string, FileFormat, error) {
 	// Detect format from path
 	format := fp.detector.DetectFormatFromPath(inputPath)

@@ -5,26 +5,26 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"math/rand"
 	"sync"
 	"time"
+
+	"github.com/benjaminwestern/data-refinery/internal/safety"
 )
 
 var (
-	ErrRetryExhausted    = errors.New("retry attempts exhausted")
-	ErrRetryContextDone  = errors.New("retry context cancelled")
-	ErrRetryNotRetryable = errors.New("error is not retryable")
-	ErrRetryTimeout      = errors.New("retry timeout exceeded")
+	errRetryExhausted    = errors.New("retry attempts exhausted")
+	errRetryContextDone  = errors.New("retry context cancelled")
+	errRetryNotRetryable = errors.New("error is not retryable")
 )
 
-// RetryableError represents an error that can be retried
+// RetryableError represents an error that can be retried.
 type RetryableError interface {
 	error
 	IsRetryable() bool
 	RetryAfter() time.Duration
 }
 
-// retryableErrorImpl is a concrete implementation of RetryableError
+// retryableErrorImpl is a concrete implementation of RetryableError.
 type retryableErrorImpl struct {
 	err        error
 	retryable  bool
@@ -47,7 +47,7 @@ func (r *retryableErrorImpl) Unwrap() error {
 	return r.err
 }
 
-// NewRetryableError creates a new retryable error
+// NewRetryableError creates a new retryable error.
 func NewRetryableError(err error, retryable bool, retryAfter time.Duration) RetryableError {
 	return &retryableErrorImpl{
 		err:        err,
@@ -56,34 +56,33 @@ func NewRetryableError(err error, retryable bool, retryAfter time.Duration) Retr
 	}
 }
 
-// BackoffStrategy defines the strategy for calculating retry delays
+// BackoffStrategy defines the strategy for calculating retry delays.
 type BackoffStrategy interface {
 	NextDelay(attempt int, lastError error) time.Duration
 	Reset()
 }
 
-// ExponentialBackoff implements exponential backoff with jitter
+// ExponentialBackoff implements exponential backoff with jitter.
 type ExponentialBackoff struct {
 	BaseDelay  time.Duration
 	MaxDelay   time.Duration
 	Multiplier float64
 	Jitter     bool
 	JitterType JitterType
-	randomizer *rand.Rand
 	mu         sync.Mutex
 }
 
-// JitterType defines the type of jitter to apply
+// JitterType defines the type of jitter to apply.
 type JitterType int
 
 const (
-	JitterNone JitterType = iota
-	JitterFull
-	JitterEqual
-	JitterDecorrelated
+	jitterNone JitterType = iota
+	jitterFull
+	jitterEqual
+	jitterDecorrelated
 )
 
-// NewExponentialBackoff creates a new exponential backoff strategy
+// NewExponentialBackoff creates a new exponential backoff strategy.
 func NewExponentialBackoff(baseDelay, maxDelay time.Duration, multiplier float64, jitter bool) *ExponentialBackoff {
 	if multiplier <= 1.0 {
 		multiplier = 2.0
@@ -100,12 +99,11 @@ func NewExponentialBackoff(baseDelay, maxDelay time.Duration, multiplier float64
 		MaxDelay:   maxDelay,
 		Multiplier: multiplier,
 		Jitter:     jitter,
-		JitterType: JitterFull,
-		randomizer: rand.New(rand.NewSource(time.Now().UnixNano())),
+		JitterType: jitterFull,
 	}
 }
 
-// NextDelay calculates the next delay based on the attempt number
+// NextDelay calculates the next delay based on the attempt number.
 func (eb *ExponentialBackoff) NextDelay(attempt int, lastError error) time.Duration {
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
@@ -137,38 +135,40 @@ func (eb *ExponentialBackoff) NextDelay(attempt int, lastError error) time.Durat
 	return time.Duration(delay)
 }
 
-// applyJitter applies jitter to the delay
+// applyJitter applies jitter to the delay.
 func (eb *ExponentialBackoff) applyJitter(delay float64) float64 {
 	switch eb.JitterType {
-	case JitterFull:
+	case jitterNone:
+		return delay
+	case jitterFull:
 		// Full jitter: random value between 0 and delay
-		return eb.randomizer.Float64() * delay
-	case JitterEqual:
+		return safety.RandomFloat64() * delay
+	case jitterEqual:
 		// Equal jitter: delay/2 + random(0, delay/2)
-		return delay/2 + eb.randomizer.Float64()*(delay/2)
-	case JitterDecorrelated:
+		return delay/2 + safety.RandomFloat64()*(delay/2)
+	case jitterDecorrelated:
 		// Decorrelated jitter: min(maxDelay, randomBetween(baseDelay, delay * 3))
 		minDelay := float64(eb.BaseDelay)
 		maxJitter := math.Min(float64(eb.MaxDelay), delay*3)
-		return minDelay + eb.randomizer.Float64()*(maxJitter-minDelay)
-	default:
-		return delay
+		return minDelay + safety.RandomFloat64()*(maxJitter-minDelay)
 	}
+
+	return delay
 }
 
-// Reset resets the backoff strategy
+// Reset resets the backoff strategy.
 func (eb *ExponentialBackoff) Reset() {
 	// Nothing to reset for exponential backoff
 }
 
-// LinearBackoff implements linear backoff
+// LinearBackoff implements linear backoff.
 type LinearBackoff struct {
 	BaseDelay time.Duration
 	MaxDelay  time.Duration
 	Increment time.Duration
 }
 
-// NewLinearBackoff creates a new linear backoff strategy
+// NewLinearBackoff creates a new linear backoff strategy.
 func NewLinearBackoff(baseDelay, maxDelay, increment time.Duration) *LinearBackoff {
 	return &LinearBackoff{
 		BaseDelay: baseDelay,
@@ -177,7 +177,7 @@ func NewLinearBackoff(baseDelay, maxDelay, increment time.Duration) *LinearBacko
 	}
 }
 
-// NextDelay calculates the next delay for linear backoff
+// NextDelay calculates the next delay for linear backoff.
 func (lb *LinearBackoff) NextDelay(attempt int, lastError error) time.Duration {
 	if attempt < 0 {
 		attempt = 0
@@ -198,23 +198,23 @@ func (lb *LinearBackoff) NextDelay(attempt int, lastError error) time.Duration {
 	return delay
 }
 
-// Reset resets the linear backoff strategy
+// Reset resets the linear backoff strategy.
 func (lb *LinearBackoff) Reset() {
 	// Nothing to reset for linear backoff
 }
 
-// FixedBackoff implements fixed delay backoff
+// FixedBackoff implements fixed delay backoff.
 type FixedBackoff struct {
 	Delay time.Duration
 }
 
-// NewFixedBackoff creates a new fixed backoff strategy
+// NewFixedBackoff creates a new fixed backoff strategy.
 func NewFixedBackoff(delay time.Duration) *FixedBackoff {
 	return &FixedBackoff{Delay: delay}
 }
 
-// NextDelay returns the fixed delay
-func (fb *FixedBackoff) NextDelay(attempt int, lastError error) time.Duration {
+// NextDelay returns the fixed delay.
+func (fb *FixedBackoff) NextDelay(_ int, lastError error) time.Duration {
 	// Check if the error has a specific retry after duration
 	if retryableErr, ok := lastError.(RetryableError); ok {
 		if retryAfter := retryableErr.RetryAfter(); retryAfter > 0 {
@@ -225,15 +225,15 @@ func (fb *FixedBackoff) NextDelay(attempt int, lastError error) time.Duration {
 	return fb.Delay
 }
 
-// Reset resets the fixed backoff strategy
+// Reset resets the fixed backoff strategy.
 func (fb *FixedBackoff) Reset() {
 	// Nothing to reset for fixed backoff
 }
 
-// RetryCondition defines when to retry an operation
+// RetryCondition defines when to retry an operation.
 type RetryCondition func(error) bool
 
-// DefaultRetryCondition is the default retry condition
+// DefaultRetryCondition is the default retry condition.
 func DefaultRetryCondition(err error) bool {
 	if err == nil {
 		return false
@@ -255,7 +255,7 @@ func DefaultRetryCondition(err error) bool {
 	}
 }
 
-// RetryConfig holds configuration for retry operations
+// RetryConfig holds configuration for retry operations.
 type RetryConfig struct {
 	MaxAttempts     int
 	BackoffStrategy BackoffStrategy
@@ -266,20 +266,20 @@ type RetryConfig struct {
 	OnSuccess       func(attempts int)
 }
 
-// DefaultRetryConfig returns a default retry configuration
+// DefaultRetryConfig returns a default retry configuration.
 func DefaultRetryConfig() RetryConfig {
 	return RetryConfig{
 		MaxAttempts:     3,
 		BackoffStrategy: NewExponentialBackoff(100*time.Millisecond, 30*time.Second, 2.0, true),
 		RetryCondition:  DefaultRetryCondition,
 		Timeout:         0, // No timeout
-		OnRetry:         func(attempt int, err error, nextDelay time.Duration) {},
-		OnFailure:       func(err error, attempts int) {},
-		OnSuccess:       func(attempts int) {},
+		OnRetry:         func(_ int, _ error, _ time.Duration) {},
+		OnFailure:       func(_ error, _ int) {},
+		OnSuccess:       func(_ int) {},
 	}
 }
 
-// Retryer manages retry operations
+// Retryer manages retry operations.
 type Retryer struct {
 	config RetryConfig
 	mu     sync.RWMutex
@@ -294,7 +294,7 @@ type Retryer struct {
 	successRate     float64
 }
 
-// NewRetryer creates a new retryer with the given configuration
+// NewRetryer creates a new retryer with the given configuration.
 func NewRetryer(config RetryConfig) *Retryer {
 	if config.MaxAttempts <= 0 {
 		config.MaxAttempts = 3
@@ -306,13 +306,13 @@ func NewRetryer(config RetryConfig) *Retryer {
 		config.RetryCondition = DefaultRetryCondition
 	}
 	if config.OnRetry == nil {
-		config.OnRetry = func(attempt int, err error, nextDelay time.Duration) {}
+		config.OnRetry = func(_ int, _ error, _ time.Duration) {}
 	}
 	if config.OnFailure == nil {
-		config.OnFailure = func(err error, attempts int) {}
+		config.OnFailure = func(_ error, _ int) {}
 	}
 	if config.OnSuccess == nil {
-		config.OnSuccess = func(attempts int) {}
+		config.OnSuccess = func(_ int) {}
 	}
 
 	return &Retryer{
@@ -320,7 +320,7 @@ func NewRetryer(config RetryConfig) *Retryer {
 	}
 }
 
-// Execute executes the given function with retry logic
+// Execute executes the given function with retry logic.
 func (r *Retryer) Execute(ctx context.Context, fn func() error) error {
 	r.mu.Lock()
 	r.totalAttempts++
@@ -348,7 +348,7 @@ func (r *Retryer) Execute(ctx context.Context, fn func() error) error {
 		case <-timeoutCtx.Done():
 			r.recordFailure(attempt + 1)
 			r.config.OnFailure(timeoutCtx.Err(), attempt+1)
-			return ErrRetryContextDone
+			return errRetryContextDone
 		default:
 		}
 
@@ -368,7 +368,7 @@ func (r *Retryer) Execute(ctx context.Context, fn func() error) error {
 		if !r.config.RetryCondition(err) {
 			r.recordFailure(attempt + 1)
 			r.config.OnFailure(err, attempt+1)
-			return fmt.Errorf("%w: %v", ErrRetryNotRetryable, err)
+			return fmt.Errorf("%w: %v", errRetryNotRetryable, err)
 		}
 
 		// Don't wait after the last attempt
@@ -387,7 +387,7 @@ func (r *Retryer) Execute(ctx context.Context, fn func() error) error {
 		case <-timeoutCtx.Done():
 			r.recordFailure(attempt + 1)
 			r.config.OnFailure(timeoutCtx.Err(), attempt+1)
-			return ErrRetryContextDone
+			return errRetryContextDone
 		case <-time.After(delay):
 			r.recordRetry()
 		}
@@ -396,10 +396,10 @@ func (r *Retryer) Execute(ctx context.Context, fn func() error) error {
 	// All attempts exhausted
 	r.recordFailure(r.config.MaxAttempts)
 	r.config.OnFailure(lastError, r.config.MaxAttempts)
-	return fmt.Errorf("%w: %v", ErrRetryExhausted, lastError)
+	return fmt.Errorf("%w: %v", errRetryExhausted, lastError)
 }
 
-// ExecuteWithResult executes a function that returns a result and error
+// ExecuteWithResult executes a function that returns a result and error.
 func (r *Retryer) ExecuteWithResult(ctx context.Context, fn func() (interface{}, error)) (interface{}, error) {
 	var result interface{}
 
@@ -412,7 +412,7 @@ func (r *Retryer) ExecuteWithResult(ctx context.Context, fn func() (interface{},
 	return result, err
 }
 
-// recordSuccess records a successful operation
+// recordSuccess records a successful operation.
 func (r *Retryer) recordSuccess(attempts int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -422,7 +422,7 @@ func (r *Retryer) recordSuccess(attempts int) {
 	r.updateSuccessRate()
 }
 
-// recordFailure records a failed operation
+// recordFailure records a failed operation.
 func (r *Retryer) recordFailure(attempts int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -432,7 +432,7 @@ func (r *Retryer) recordFailure(attempts int) {
 	r.updateSuccessRate()
 }
 
-// recordRetry records a retry attempt
+// recordRetry records a retry attempt.
 func (r *Retryer) recordRetry() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -440,7 +440,7 @@ func (r *Retryer) recordRetry() {
 	r.totalRetries++
 }
 
-// updateAverageAttempts updates the average attempts
+// updateAverageAttempts updates the average attempts.
 func (r *Retryer) updateAverageAttempts(attempts int) {
 	totalOps := r.totalSuccesses + r.totalFailures
 	if totalOps > 0 {
@@ -448,7 +448,7 @@ func (r *Retryer) updateAverageAttempts(attempts int) {
 	}
 }
 
-// updateSuccessRate updates the success rate
+// updateSuccessRate updates the success rate.
 func (r *Retryer) updateSuccessRate() {
 	totalOps := r.totalSuccesses + r.totalFailures
 	if totalOps > 0 {
@@ -456,7 +456,7 @@ func (r *Retryer) updateSuccessRate() {
 	}
 }
 
-// RetryMetrics contains metrics about retry operations
+// RetryMetrics contains metrics about retry operations.
 type RetryMetrics struct {
 	TotalAttempts   uint64
 	TotalSuccesses  uint64
@@ -469,7 +469,7 @@ type RetryMetrics struct {
 	BackoffStrategy string
 }
 
-// Metrics returns metrics about the retryer
+// Metrics returns metrics about the retryer.
 func (r *Retryer) Metrics() RetryMetrics {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -499,7 +499,7 @@ func (r *Retryer) Metrics() RetryMetrics {
 	}
 }
 
-// Reset resets the retryer's metrics
+// Reset resets the retryer's metrics.
 func (r *Retryer) Reset() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -513,7 +513,7 @@ func (r *Retryer) Reset() {
 	r.lastAttemptTime = time.Time{}
 }
 
-// UpdateConfig updates the retry configuration
+// UpdateConfig updates the retry configuration.
 func (r *Retryer) UpdateConfig(config RetryConfig) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -521,7 +521,7 @@ func (r *Retryer) UpdateConfig(config RetryConfig) {
 	r.config = config
 }
 
-// GetConfig returns the current retry configuration
+// GetConfig returns the current retry configuration.
 func (r *Retryer) GetConfig() RetryConfig {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -529,20 +529,20 @@ func (r *Retryer) GetConfig() RetryConfig {
 	return r.config
 }
 
-// RetryManager manages multiple retryers
+// RetryManager manages multiple retryers.
 type RetryManager struct {
 	retryers map[string]*Retryer
 	mu       sync.RWMutex
 }
 
-// NewRetryManager creates a new retry manager
+// NewRetryManager creates a new retry manager.
 func NewRetryManager() *RetryManager {
 	return &RetryManager{
 		retryers: make(map[string]*Retryer),
 	}
 }
 
-// GetOrCreate gets an existing retryer or creates a new one
+// GetOrCreate gets an existing retryer or creates a new one.
 func (rm *RetryManager) GetOrCreate(name string, config RetryConfig) *Retryer {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
@@ -556,7 +556,7 @@ func (rm *RetryManager) GetOrCreate(name string, config RetryConfig) *Retryer {
 	return retryer
 }
 
-// Get gets an existing retryer
+// Get gets an existing retryer.
 func (rm *RetryManager) Get(name string) (*Retryer, bool) {
 	rm.mu.RLock()
 	defer rm.mu.RUnlock()
@@ -565,7 +565,7 @@ func (rm *RetryManager) Get(name string) (*Retryer, bool) {
 	return retryer, exists
 }
 
-// Remove removes a retryer
+// Remove removes a retryer.
 func (rm *RetryManager) Remove(name string) {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
@@ -573,7 +573,7 @@ func (rm *RetryManager) Remove(name string) {
 	delete(rm.retryers, name)
 }
 
-// List returns all retryer names
+// List returns all retryer names.
 func (rm *RetryManager) List() []string {
 	rm.mu.RLock()
 	defer rm.mu.RUnlock()
@@ -585,7 +585,7 @@ func (rm *RetryManager) List() []string {
 	return names
 }
 
-// GetMetrics returns metrics for all retryers
+// GetMetrics returns metrics for all retryers.
 func (rm *RetryManager) GetMetrics() map[string]RetryMetrics {
 	rm.mu.RLock()
 	defer rm.mu.RUnlock()
@@ -597,7 +597,7 @@ func (rm *RetryManager) GetMetrics() map[string]RetryMetrics {
 	return metrics
 }
 
-// Reset resets all retryers
+// Reset resets all retryers.
 func (rm *RetryManager) Reset() {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
@@ -609,7 +609,7 @@ func (rm *RetryManager) Reset() {
 
 // Convenience functions for common retry scenarios
 
-// WithExponentialBackoff creates a retryer with exponential backoff
+// WithExponentialBackoff creates a retryer with exponential backoff.
 func WithExponentialBackoff(maxAttempts int, baseDelay, maxDelay time.Duration) *Retryer {
 	config := DefaultRetryConfig()
 	config.MaxAttempts = maxAttempts
@@ -617,7 +617,7 @@ func WithExponentialBackoff(maxAttempts int, baseDelay, maxDelay time.Duration) 
 	return NewRetryer(config)
 }
 
-// WithLinearBackoff creates a retryer with linear backoff
+// WithLinearBackoff creates a retryer with linear backoff.
 func WithLinearBackoff(maxAttempts int, baseDelay, increment, maxDelay time.Duration) *Retryer {
 	config := DefaultRetryConfig()
 	config.MaxAttempts = maxAttempts
@@ -625,7 +625,7 @@ func WithLinearBackoff(maxAttempts int, baseDelay, increment, maxDelay time.Dura
 	return NewRetryer(config)
 }
 
-// WithFixedBackoff creates a retryer with fixed backoff
+// WithFixedBackoff creates a retryer with fixed backoff.
 func WithFixedBackoff(maxAttempts int, delay time.Duration) *Retryer {
 	config := DefaultRetryConfig()
 	config.MaxAttempts = maxAttempts
@@ -633,13 +633,13 @@ func WithFixedBackoff(maxAttempts int, delay time.Duration) *Retryer {
 	return NewRetryer(config)
 }
 
-// Retry is a convenience function for simple retry operations
+// Retry is a convenience function for simple retry operations.
 func Retry(ctx context.Context, maxAttempts int, fn func() error) error {
 	retryer := WithExponentialBackoff(maxAttempts, 100*time.Millisecond, 30*time.Second)
 	return retryer.Execute(ctx, fn)
 }
 
-// RetryWithBackoff is a convenience function for retry with custom backoff
+// RetryWithBackoff is a convenience function for retry with custom backoff.
 func RetryWithBackoff(ctx context.Context, backoff BackoffStrategy, maxAttempts int, fn func() error) error {
 	config := DefaultRetryConfig()
 	config.MaxAttempts = maxAttempts

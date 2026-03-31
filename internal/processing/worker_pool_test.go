@@ -250,7 +250,7 @@ func TestWorkerPool_StoppedSubmission(t *testing.T) {
 		t.Error("Expected submission to fail when pool is stopped")
 	}
 
-	if err := pool.SubmitBlocking(task); err != ErrPoolClosed {
-		t.Errorf("Expected ErrPoolClosed, got %v", err)
+	if err := pool.SubmitBlocking(task); err != errPoolClosed {
+		t.Errorf("Expected errPoolClosed, got %v", err)
 	}
 }

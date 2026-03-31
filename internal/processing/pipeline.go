@@ -6,9 +6,11 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/benjaminwestern/data-refinery/internal/safety"
 )
 
-// PipelineStage represents a single stage in the processing pipeline
+// PipelineStage represents a single stage in the processing pipeline.
 type PipelineStage[T any] struct {
 	Name         string
 	Processor    func(ctx context.Context, input T) (T, error)
@@ -21,12 +23,11 @@ type PipelineStage[T any] struct {
 	cancel       context.CancelFunc
 	wg           sync.WaitGroup
 	metrics      *PipelineMetrics
-	stageMutex   sync.RWMutex
 	isRunning    atomic.Bool
 	backpressure *BackpressureController
 }
 
-// PipelineMetrics tracks performance metrics for pipeline stages
+// PipelineMetrics tracks performance metrics for pipeline stages.
 type PipelineMetrics struct {
 	ProcessedItems   atomic.Int64
 	ProcessingTime   atomic.Int64 // nanoseconds
@@ -34,10 +35,9 @@ type PipelineMetrics struct {
 	QueueDepth       atomic.Int64
 	ThroughputPerSec atomic.Int64
 	lastUpdate       atomic.Int64
-	mutex            sync.RWMutex
 }
 
-// BackpressureController manages flow control between pipeline stages
+// BackpressureController manages flow control between pipeline stages.
 type BackpressureController struct {
 	maxQueueDepth    int
 	currentDepth     atomic.Int64
@@ -47,7 +47,7 @@ type BackpressureController struct {
 	lastThrottleTime atomic.Int64
 }
 
-// Pipeline represents a multi-stage processing pipeline
+// Pipeline represents a multi-stage processing pipeline.
 type Pipeline[T any] struct {
 	stages       []*PipelineStage[T]
 	input        chan T
@@ -62,7 +62,7 @@ type Pipeline[T any] struct {
 	backpressure *SystemBackpressureController
 }
 
-// PipelineSystemMetrics tracks overall pipeline performance
+// PipelineSystemMetrics tracks overall pipeline performance.
 type PipelineSystemMetrics struct {
 	TotalThroughput   atomic.Int64
 	EndToEndLatency   atomic.Int64
@@ -73,7 +73,7 @@ type PipelineSystemMetrics struct {
 	lastSnapshot      atomic.Int64
 }
 
-// SystemBackpressureController manages system-wide backpressure
+// SystemBackpressureController manages system-wide backpressure.
 type SystemBackpressureController struct {
 	enabled           atomic.Bool
 	globalThreshold   int
@@ -83,9 +83,9 @@ type SystemBackpressureController struct {
 	mutex             sync.RWMutex
 }
 
-// NewPipeline creates a new processing pipeline
+// NewPipeline creates a new processing pipeline.
 func NewPipeline[T any](ctx context.Context, bufferSize int) *Pipeline[T] {
-	pipelineCtx, cancel := context.WithCancel(ctx)
+	pipelineCtx, cancel := safety.ManagedContext(ctx)
 
 	return &Pipeline[T]{
 		stages:    make([]*PipelineStage[T], 0),
@@ -103,7 +103,7 @@ func NewPipeline[T any](ctx context.Context, bufferSize int) *Pipeline[T] {
 	}
 }
 
-// AddStage adds a new processing stage to the pipeline
+// AddStage adds a new processing stage to the pipeline.
 func (p *Pipeline[T]) AddStage(name string, processor func(ctx context.Context, input T) (T, error), workers int, bufferSize int) *Pipeline[T] {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
@@ -112,7 +112,7 @@ func (p *Pipeline[T]) AddStage(name string, processor func(ctx context.Context, 
 		panic("cannot add stages to running pipeline")
 	}
 
-	stageCtx, cancel := context.WithCancel(p.ctx)
+	stageCtx, cancel := safety.ManagedContext(p.ctx)
 
 	stage := &PipelineStage[T]{
 		Name:       name,
@@ -136,7 +136,7 @@ func (p *Pipeline[T]) AddStage(name string, processor func(ctx context.Context, 
 	return p
 }
 
-// Start begins processing the pipeline
+// Start begins processing the pipeline.
 func (p *Pipeline[T]) Start() error {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
@@ -172,7 +172,7 @@ func (p *Pipeline[T]) Start() error {
 	return nil
 }
 
-// startStage starts a specific pipeline stage
+// startStage starts a specific pipeline stage.
 func (p *Pipeline[T]) startStage(stage *PipelineStage[T], index int) error {
 	stage.isRunning.Store(true)
 	stage.metrics.lastUpdate.Store(time.Now().UnixNano())
@@ -200,7 +200,7 @@ func (p *Pipeline[T]) startStage(stage *PipelineStage[T], index int) error {
 	return nil
 }
 
-// runStageWorker runs a single worker for a pipeline stage
+// runStageWorker runs a single worker for a pipeline stage.
 func (p *Pipeline[T]) runStageWorker(stage *PipelineStage[T], inputChan chan T, workerID int) {
 	defer stage.wg.Done()
 
@@ -247,7 +247,7 @@ func (p *Pipeline[T]) runStageWorker(stage *PipelineStage[T], inputChan chan T, 
 	}
 }
 
-// applyBackpressure applies backpressure control to slow down processing
+// applyBackpressure applies backpressure control to slow down processing.
 func (p *Pipeline[T]) applyBackpressure(stage *PipelineStage[T]) {
 	currentDepth := stage.backpressure.currentDepth.Load()
 	if currentDepth > int64(stage.backpressure.maxQueueDepth) {
@@ -263,7 +263,7 @@ func (p *Pipeline[T]) applyBackpressure(stage *PipelineStage[T]) {
 	}
 }
 
-// coordinate coordinates the overall pipeline flow
+// coordinate coordinates the overall pipeline flow.
 func (p *Pipeline[T]) coordinate() {
 	defer p.wg.Done()
 
@@ -289,7 +289,7 @@ func (p *Pipeline[T]) coordinate() {
 	}
 }
 
-// updateSystemMetrics updates overall pipeline metrics
+// updateSystemMetrics updates overall pipeline metrics.
 func (p *Pipeline[T]) updateSystemMetrics() {
 	now := time.Now().UnixNano()
 	lastSnapshot := p.metrics.lastSnapshot.Load()
@@ -322,7 +322,7 @@ func (p *Pipeline[T]) updateSystemMetrics() {
 	p.metrics.lastSnapshot.Store(now)
 }
 
-// monitorBackpressure monitors system-wide backpressure
+// monitorBackpressure monitors system-wide backpressure.
 func (p *Pipeline[T]) monitorBackpressure() {
 	defer p.wg.Done()
 
@@ -339,7 +339,7 @@ func (p *Pipeline[T]) monitorBackpressure() {
 	}
 }
 
-// checkBackpressure checks if system-wide backpressure should be applied
+// checkBackpressure checks if system-wide backpressure should be applied.
 func (p *Pipeline[T]) checkBackpressure() {
 	totalQueueDepth := int64(len(p.input)) + int64(len(p.output))
 
@@ -380,7 +380,7 @@ func (p *Pipeline[T]) checkBackpressure() {
 	}
 }
 
-// collectMetrics collects performance metrics
+// collectMetrics collects performance metrics.
 func (p *Pipeline[T]) collectMetrics() {
 	defer p.wg.Done()
 
@@ -397,7 +397,7 @@ func (p *Pipeline[T]) collectMetrics() {
 	}
 }
 
-// collectStageMetrics collects metrics for a specific stage
+// collectStageMetrics collects metrics for a specific stage.
 func (p *Pipeline[T]) collectStageMetrics(stage *PipelineStage[T]) {
 	defer stage.wg.Done()
 
@@ -414,7 +414,7 @@ func (p *Pipeline[T]) collectStageMetrics(stage *PipelineStage[T]) {
 	}
 }
 
-// updateStageMetrics updates metrics for a specific stage
+// updateStageMetrics updates metrics for a specific stage.
 func (p *Pipeline[T]) updateStageMetrics(stage *PipelineStage[T]) {
 	now := time.Now().UnixNano()
 	lastUpdate := stage.metrics.lastUpdate.Load()
@@ -434,7 +434,7 @@ func (p *Pipeline[T]) updateStageMetrics(stage *PipelineStage[T]) {
 	stage.metrics.lastUpdate.Store(now)
 }
 
-// handleStageErrors handles errors from a specific stage
+// handleStageErrors handles errors from a specific stage.
 func (p *Pipeline[T]) handleStageErrors(stage *PipelineStage[T]) {
 	defer stage.wg.Done()
 
@@ -475,7 +475,7 @@ func (p *Pipeline[T]) handleStageErrors(stage *PipelineStage[T]) {
 	}
 }
 
-// Submit submits an item to the pipeline for processing
+// Submit submits an item to the pipeline for processing.
 func (p *Pipeline[T]) Submit(item T) error {
 	if !p.isRunning.Load() {
 		return fmt.Errorf("pipeline is not running")
@@ -485,27 +485,27 @@ func (p *Pipeline[T]) Submit(item T) error {
 	case p.input <- item:
 		return nil
 	case <-p.ctx.Done():
-		return p.ctx.Err()
+		return fmt.Errorf("submit pipeline item: %w", p.ctx.Err())
 	}
 }
 
-// Results returns the output channel for processed items
+// Results returns the output channel for processed items.
 func (p *Pipeline[T]) Results() <-chan T {
 	return p.output
 }
 
-// Errors returns the error channel
+// Errors returns the error channel.
 func (p *Pipeline[T]) Errors() <-chan error {
 	return p.errorChan
 }
 
-// GetMetrics returns current pipeline metrics
+// GetMetrics returns current pipeline metrics.
 func (p *Pipeline[T]) GetMetrics() *PipelineSystemMetrics {
 	p.updateSystemMetrics()
 	return p.metrics
 }
 
-// GetStageMetrics returns metrics for a specific stage
+// GetStageMetrics returns metrics for a specific stage.
 func (p *Pipeline[T]) GetStageMetrics(stageName string) *PipelineMetrics {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
@@ -519,7 +519,7 @@ func (p *Pipeline[T]) GetStageMetrics(stageName string) *PipelineMetrics {
 	return nil
 }
 
-// Stop stops the pipeline and all stages
+// Stop stops the pipeline and all stages.
 func (p *Pipeline[T]) Stop() error {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
@@ -548,17 +548,17 @@ func (p *Pipeline[T]) Stop() error {
 	return nil
 }
 
-// IsRunning returns whether the pipeline is currently running
+// IsRunning returns whether the pipeline is currently running.
 func (p *Pipeline[T]) IsRunning() bool {
 	return p.isRunning.Load()
 }
 
-// GetBackpressureStatus returns current backpressure status
+// GetBackpressureStatus returns current backpressure status.
 func (p *Pipeline[T]) GetBackpressureStatus() (bool, int64) {
 	return p.backpressure.enabled.Load(), p.backpressure.adaptiveThreshold.Load()
 }
 
-// SetBackpressureThreshold sets the global backpressure threshold
+// SetBackpressureThreshold sets the global backpressure threshold.
 func (p *Pipeline[T]) SetBackpressureThreshold(threshold int) {
 	p.backpressure.mutex.Lock()
 	defer p.backpressure.mutex.Unlock()

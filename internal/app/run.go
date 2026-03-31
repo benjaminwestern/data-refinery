@@ -12,6 +12,7 @@ import (
 
 	"github.com/benjaminwestern/data-refinery/internal/config"
 	"github.com/benjaminwestern/data-refinery/internal/headless"
+	"github.com/benjaminwestern/data-refinery/internal/ingest"
 	"github.com/benjaminwestern/data-refinery/internal/rewrite"
 	"github.com/benjaminwestern/data-refinery/internal/tui"
 )
@@ -19,24 +20,45 @@ import (
 const (
 	appName         = "data-refinery"
 	analysisLogFile = "data-refinery.log"
+	ingestLogFile   = "ingest.log"
 	rewriteLogFile  = "rewrite.log"
+	commandIngest   = "ingest"
+	commandRewrite  = "rewrite"
+	commandAnalysis = "analysis"
 )
 
 // Run dispatches to the analysis or rewrite flow for the current invocation.
 func Run(ctx context.Context, args []string) int {
 	if len(args) > 0 {
 		switch args[0] {
-		case "rewrite":
-			return runWithConfig(ctx, "rewrite", args[1:])
-		case "analyse", "analyze", "analysis":
-			return runWithConfig(ctx, "analysis", args[1:])
+		case commandIngest, "normalize", "normalise":
+			if len(args) > 1 && isHelpArg(args[1]) {
+				printIngestUsage()
+				return 0
+			}
+			return runWithConfig(ctx, commandIngest, args[1:])
+		case commandRewrite:
+			if len(args) > 1 && isHelpArg(args[1]) {
+				printRewriteUsage()
+				return 0
+			}
+			return runWithConfig(ctx, commandRewrite, args[1:])
+		case "analyse", "analyze", commandAnalysis:
+			if len(args) > 1 && isHelpArg(args[1]) {
+				printAnalysisUsage()
+				return 0
+			}
+			return runWithConfig(ctx, commandAnalysis, args[1:])
 		case "help", "-h", "--help":
+			if len(args) > 1 {
+				return printCommandUsage(args[1])
+			}
 			printRootUsage()
 			return 0
 		}
 	}
 
-	return runWithConfig(ctx, "analysis", args)
+	return runWithConfig(ctx, commandAnalysis, args)
 }
 
 func runWithConfig(ctx context.Context, command string, args []string) int {
@@ -52,7 +74,9 @@ func runWithConfig(ctx context.Context, command string, args []string) int {
 	}
 
 	switch command {
-	case "rewrite":
+	case commandIngest:
+		return runIngest(ctx, cfg, safetyOptions, args)
+	case commandRewrite:
 		return runRewrite(ctx, cfg, safetyOptions, args)
 	default:
 		return runAnalysis(ctx, cfg, safetyOptions, args)
@@ -70,6 +94,7 @@ func runAnalysis(ctx context.Context, cfg *config.Config, safetyOptions runtimeS
 
 	fs := flag.NewFlagSet("analysis", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	fs.Usage = printAnalysisUsage
 	fs.StringVar(&appConfigFlag, "app-config", cfg.LoadedConfigPath, "Path to the base app JSON config file")
 	fs.BoolVar(&allowImplicitConfig, "allow-implicit-config", safetyOptions.allowImplicitConfig, "Allow implicitly discovered app config files for guarded mutation flows")
 	fs.BoolVar(&unsafeBypass, "yes-i-know-what-im-doing", safetyOptions.unsafeBypass, "Bypass mutation safety checks for config trust and local output roots")
@@ -82,7 +107,7 @@ func runAnalysis(ctx context.Context, cfg *config.Config, safetyOptions runtimeS
 	fs.BoolVar(&cfg.CheckRow, "check.row", cfg.CheckRow, "Enable duplicate row check (hashing)")
 	fs.BoolVar(&cfg.ShowFolderBreakdown, "show.folders", cfg.ShowFolderBreakdown, "Show per-folder breakdown table in summary report")
 	fs.BoolVar(&cfg.EnableTxtOutput, "output.txt", cfg.EnableTxtOutput, "Enable .txt report output")
-	fs.BoolVar(&cfg.EnableJsonOutput, "output.json", cfg.EnableJsonOutput, "Enable .json report output")
+	fs.BoolVar(&cfg.EnableJSONOutput, "output.json", cfg.EnableJSONOutput, "Enable .json report output")
 	fs.BoolVar(&cfg.PurgeIDs, "purge-ids", cfg.PurgeIDs, "Enable interactive purging of duplicate IDs (local files only)")
 	fs.BoolVar(&cfg.PurgeRows, "purge-rows", cfg.PurgeRows, "Enable interactive purging of duplicate rows (local files only)")
 	fs.BoolVar(&isHeadless, "headless", false, "Run without TUI and print report to stdout")
@@ -90,6 +115,9 @@ func runAnalysis(ctx context.Context, cfg *config.Config, safetyOptions runtimeS
 	fs.StringVar(&outputFormat, "output", "txt", "Output format for headless mode (txt or json)")
 
 	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return 0
+		}
 		return 2
 	}
 
@@ -188,7 +216,7 @@ func runAnalysis(ctx context.Context, cfg *config.Config, safetyOptions runtimeS
 			CheckRow:            cfg.CheckRow,
 			ShowFolderBreakdown: cfg.ShowFolderBreakdown,
 			EnableTxtOutput:     cfg.EnableTxtOutput,
-			EnableJsonOutput:    cfg.EnableJsonOutput,
+			EnableJSONOutput:    cfg.EnableJSONOutput,
 		}
 
 		headless.Run(ctx, headlessCfg)
@@ -269,6 +297,7 @@ func runRewrite(ctx context.Context, baseCfg *config.Config, safetyOptions runti
 
 	fs := flag.NewFlagSet("rewrite", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	fs.Usage = printRewriteUsage
 	fs.StringVar(&appConfigFlag, "app-config", baseCfg.LoadedConfigPath, "Path to the base app JSON config file")
 	fs.BoolVar(&allowImplicitConfig, "allow-implicit-config", safetyOptions.allowImplicitConfig, "Allow implicitly discovered app config files for apply-mode rewrites")
 	fs.BoolVar(&unsafeBypass, "yes-i-know-what-im-doing", safetyOptions.unsafeBypass, "Bypass mutation safety checks for config trust and local output roots")
@@ -295,6 +324,9 @@ func runRewrite(ctx context.Context, baseCfg *config.Config, safetyOptions runti
 	fs.StringVar(&cfg.UpdateStateValue, "update-state-value", cfg.UpdateStateValue, "Optional state value filter for updates")
 
 	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return 0
+		}
 		return 2
 	}
 
@@ -395,6 +427,125 @@ func runRewrite(ctx context.Context, baseCfg *config.Config, safetyOptions runti
 	return 0
 }
 
+func runIngest(ctx context.Context, baseCfg *config.Config, safetyOptions runtimeSafetyOptions, args []string) int {
+	cfg := ingest.Config{
+		Workers:            baseCfg.Workers,
+		LogPath:            baseCfg.LogPath,
+		ApprovedOutputRoot: baseCfg.ApprovedOutputRoot,
+	}
+
+	configPath := extractFlagValue(args, "-config")
+	if configPath == "" {
+		configPath = extractFlagValue(args, "--config")
+	}
+	if configPath != "" {
+		fileCfg, err := ingest.LoadConfigFile(configPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error loading ingest config: %v\n", err)
+			return 1
+		}
+		ingest.MergeConfig(&cfg, fileCfg)
+	}
+
+	var pathsInput string
+	var configFlag string
+	var appConfigFlag string
+	var allowImplicitConfig bool
+	var unsafeBypass bool
+
+	fs := flag.NewFlagSet("ingest", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.Usage = printIngestUsage
+	fs.StringVar(&appConfigFlag, "app-config", baseCfg.LoadedConfigPath, "Path to the base app JSON config file")
+	fs.BoolVar(&allowImplicitConfig, "allow-implicit-config", safetyOptions.allowImplicitConfig, "Allow implicitly discovered app config files for ingest output paths")
+	fs.BoolVar(&unsafeBypass, "yes-i-know-what-im-doing", safetyOptions.unsafeBypass, "Bypass mutation safety checks for config trust and local output roots")
+	fs.StringVar(&configFlag, "config", configPath, "Path to a portable ingest JSON config file")
+	fs.StringVar(&pathsInput, "path", strings.Join(cfg.Paths, ","), "Comma-separated list of local or GCS paths to normalize")
+	fs.IntVar(&cfg.Workers, "workers", cfg.Workers, "Number of concurrent ingest workers")
+	fs.StringVar(&cfg.LogPath, "log-path", cfg.LogPath, "Directory to save ingest logs")
+	fs.StringVar(&cfg.ApprovedOutputRoot, "approved-output-root", cfg.ApprovedOutputRoot, "Approved local root for ingest output paths (defaults to the current working directory)")
+	fs.StringVar(&cfg.OutputPath, "output-path", cfg.OutputPath, "Unified output path (.csv, .json, .ndjson, or .jsonl; local or gs://)")
+	fs.StringVar(&cfg.MappingFile, "mapping-file", cfg.MappingFile, "YAML or JSON mapping file that defines schema normalization rules")
+	fs.BoolVar(&cfg.RequireMappings, "require-mappings", cfg.RequireMappings, "Fail the run when a discovered file does not match any mapping")
+	fs.StringVar(&cfg.StatsOutputPath, "stats-output-path", cfg.StatsOutputPath, "Optional JSON summary path (local or gs://)")
+
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return 0
+		}
+		return 2
+	}
+
+	cfg.Paths = splitPaths(pathsInput)
+
+	if err := cfg.Validate(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return 1
+	}
+
+	if err := enforceTrustedMutationConfig("ingest", baseCfg, allowImplicitConfig, unsafeBypass); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return 1
+	}
+
+	resolvedRoot, localWriteTargets, err := resolveLocalWriteTargets(cfg.ApprovedOutputRoot, unsafeBypass, collectIngestLocalWriteTargets(cfg))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v. Use --approved-output-root or --yes-i-know-what-im-doing.\n", err)
+		return 1
+	}
+
+	printMutationSafetySummary(
+		"ingest",
+		baseCfg,
+		[]string{normalizeConfigPath(configFlag)},
+		resolvedRoot,
+		unsafeBypass,
+		localWriteTargets,
+		collectIngestRemoteWriteTargets(cfg),
+		nil,
+		nil,
+	)
+
+	if err := os.MkdirAll(cfg.LogPath, 0o700); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create log directory at %s: %v\n", cfg.LogPath, err)
+		return 1
+	}
+
+	logFilePath := filepath.Join(cfg.LogPath, ingestLogFile)
+	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to open log file at %s: %v\n", logFilePath, err)
+		return 1
+	}
+	defer closeLogFile(logFile, logFilePath)
+	log.SetOutput(logFile)
+
+	summary, err := ingest.Run(ctx, &cfg)
+	if summary != nil {
+		fmt.Printf("Ingest complete.\n")
+		fmt.Printf("Files discovered: %d\n", summary.FilesDiscovered)
+		fmt.Printf("Files processed: %d\n", summary.FilesProcessed)
+		if summary.FilesSkipped > 0 {
+			fmt.Printf("Files skipped: %d\n", summary.FilesSkipped)
+		}
+		if summary.FilesFailed > 0 {
+			fmt.Printf("Files failed: %d\n", summary.FilesFailed)
+		}
+		fmt.Printf("Rows written: %d\n", summary.RowsWritten)
+		fmt.Printf("Unified output: %s\n", summary.OutputPath)
+		if summary.StatsOutputPath != "" {
+			fmt.Printf("Ingest summary: %s\n", summary.StatsOutputPath)
+		}
+		fmt.Printf("Ingest log: %s\n", logFilePath)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Ingest failed: %v\n", err)
+		return 1
+	}
+
+	return 0
+}
+
 func splitPaths(input string) []string {
 	if input == "" {
 		return nil
@@ -418,14 +569,203 @@ func closeLogFile(logFile *os.File, logFilePath string) {
 }
 
 func printRootUsage() {
-	fmt.Printf("%s combines duplicate analysis with safe JSON/NDJSON rewrite workflows.\n\n", appName)
+	fmt.Printf("%s is a workflow-first CLI for normalization, read-only analysis,\n", appName)
+	fmt.Printf("and preview-before-apply cleanup across local storage and GCS.\n\n")
 	fmt.Printf("Usage:\n")
 	fmt.Printf("  %s [analysis flags]\n", appName)
+	fmt.Printf("  %s analyse [analysis flags]\n", appName)
+	fmt.Printf("  %s ingest [ingest flags]\n", appName)
 	fmt.Printf("  %s rewrite [rewrite flags]\n", appName)
-	fmt.Printf("  %s analyse [analysis flags]\n\n", appName)
+	fmt.Printf("  %s help <analysis|ingest|rewrite>\n\n", appName)
+	fmt.Printf("Workflows:\n")
+	fmt.Printf("  analysis  Inspect JSON-family datasets, validate keys, review duplicates,\n")
+	fmt.Printf("            and generate reports or derived cleanup artifacts.\n")
+	fmt.Printf("  ingest    Normalize CSV, TSV, XLSX, JSON, NDJSON, or JSONL inputs into\n")
+	fmt.Printf("            one unified dataset with a stable schema.\n")
+	fmt.Printf("  rewrite   Preview or apply streamed cleanup rules to JSON, NDJSON, and\n")
+	fmt.Printf("            JSONL files with backup-aware apply mode.\n\n")
+	fmt.Printf("First useful commands:\n")
+	fmt.Printf("  %s ingest -config examples/ingest-simple-config.json\n", appName)
+	fmt.Printf("  %s -validate -path ./test_data -key id\n", appName)
+	fmt.Printf("  %s rewrite -config examples/rewrite-delete-config.json\n\n", appName)
+	fmt.Printf("Supported interface:\n")
+	fmt.Printf("  The supported public surface is the CLI plus the JSON or YAML config\n")
+	fmt.Printf("  files and examples in this repository. Packages under internal/ are\n")
+	fmt.Printf("  implementation details and can change between releases.\n\n")
+	fmt.Printf("Help:\n")
+	fmt.Printf("  %s ingest --help\n", appName)
+	fmt.Printf("  %s analyse --help\n", appName)
+	fmt.Printf("  %s rewrite --help\n", appName)
+}
+
+type helpFlag struct {
+	Name        string
+	Value       string
+	Description string
+}
+
+func printAnalysisUsage() {
+	fmt.Printf("analysis inspects JSON, NDJSON, and JSONL datasets without mutating\n")
+	fmt.Printf("source data unless you explicitly enable local purge flows.\n\n")
+	fmt.Printf("Usage:\n")
+	fmt.Printf("  %s [analysis flags]\n", appName)
+	fmt.Printf("  %s analyse [analysis flags]\n", appName)
+	fmt.Printf("  %s analyze [analysis flags]\n", appName)
+	fmt.Printf("  %s analysis [analysis flags]\n\n", appName)
 	fmt.Printf("Examples:\n")
-	fmt.Printf("  %s -path /data -key id\n", appName)
+	fmt.Printf("  %s -validate -path ./test_data -key id\n", appName)
+	fmt.Printf("  %s -headless -path ./test_data -key id -output json\n", appName)
+	fmt.Printf("  %s --app-config examples/test_full_advanced.json -headless\n\n", appName)
+	fmt.Printf("Outputs:\n")
+	fmt.Printf("  analysis always prints a report to stdout and can also write text or\n")
+	fmt.Printf("  JSON reports under -log-path. Advanced configs can add search results,\n")
+	fmt.Printf("  schema reports, and derived cleanup artifacts.\n")
+	printHelpFlags("Core flags", []helpFlag{
+		{Name: "path", Value: "PATHS", Description: "Comma-separated list of local paths or gs:// URIs to analyse."},
+		{Name: "key", Value: "FIELD", Description: "Top-level key used for duplicate and validation checks."},
+		{Name: "workers", Value: "N", Description: "Number of concurrent workers. Default: 8."},
+		{Name: "headless", Description: "Run without the TUI and print the report to stdout."},
+		{Name: "validate", Description: "Run a key validation pass and exit."},
+		{Name: "output", Value: "txt|json", Description: "Stdout format for headless mode."},
+		{Name: "check.key", Description: "Enable duplicate-key detection."},
+		{Name: "check.row", Description: "Enable duplicate-row hashing."},
+		{Name: "show.folders", Description: "Show per-folder breakdowns in the summary output."},
+		{Name: "output.txt", Description: "Write text reports under -log-path."},
+		{Name: "output.json", Description: "Write JSON reports under -log-path."},
+	})
+	printHelpFlags("Safety and runtime flags", []helpFlag{
+		{Name: "purge-ids", Description: "Enable interactive duplicate-ID purge for local files only."},
+		{Name: "purge-rows", Description: "Enable interactive duplicate-row purge for local files only."},
+		{Name: "log-path", Value: "DIR", Description: "Directory used for logs and saved reports. Default: logs."},
+		{Name: "app-config", Value: "FILE", Description: "Explicit base app config file for advanced analysis and guarded runs."},
+		{Name: "allow-implicit-config", Description: "Trust an implicitly discovered base app config for guarded workflows."},
+		{Name: "approved-output-root", Value: "DIR", Description: "Approved local root for guarded output paths."},
+		{Name: "yes-i-know-what-im-doing", Description: "Bypass config-trust and approved-output-root safety guards."},
+	})
+}
+
+func printIngestUsage() {
+	fmt.Printf("ingest normalizes mixed source formats into one unified dataset that\n")
+	fmt.Printf("analysis and rewrite can consume directly.\n\n")
+	fmt.Printf("Usage:\n")
+	fmt.Printf("  %s ingest [ingest flags]\n", appName)
+	fmt.Printf("  %s normalize [ingest flags]\n", appName)
+	fmt.Printf("  %s normalise [ingest flags]\n\n", appName)
+	fmt.Printf("Examples:\n")
+	fmt.Printf("  %s ingest -config examples/ingest-simple-config.json\n", appName)
+	fmt.Printf("  %s ingest -config examples/ingest-complex-config.json\n", appName)
+	fmt.Printf("  %s ingest -path ./raw,gs://example-bucket/dropbox \\\n", appName)
+	fmt.Printf("      -mapping-file ./mappings.yaml \\\n")
+	fmt.Printf("      -output-path ./logs/unified.ndjson\n\n")
+	fmt.Printf("Supported input formats:\n")
+	fmt.Printf("  csv, tsv, xlsx, json, ndjson, jsonl\n\n")
+	fmt.Printf("Supported output formats:\n")
+	fmt.Printf("  .csv, .json, .ndjson, .jsonl for the normalized dataset, plus optional\n")
+	fmt.Printf("  .json run summaries. CSV export is scalar-only. If a row contains nested\n")
+	fmt.Printf("  data such as Attributes, the run fails and advises json, ndjson, or jsonl.\n")
+	printHelpFlags("Core flags", []helpFlag{
+		{Name: "config", Value: "FILE", Description: "Portable ingest job definition. Relative paths resolve from this file."},
+		{Name: "path", Value: "PATHS", Description: "Comma-separated list of local paths or gs:// URIs to normalize."},
+		{Name: "mapping-file", Value: "FILE", Description: "Local YAML or JSON mapping file that defines normalization rules."},
+		{Name: "output-path", Value: "FILE", Description: "Unified output target ending in .csv, .json, .ndjson, or .jsonl."},
+		{Name: "stats-output-path", Value: "FILE", Description: "Optional JSON summary target for run statistics."},
+		{Name: "require-mappings", Description: "Fail if any discovered file does not match a mapping rule."},
+		{Name: "workers", Value: "N", Description: "Number of concurrent ingest workers. Default: 8."},
+	})
+	printHelpFlags("Safety and runtime flags", []helpFlag{
+		{Name: "log-path", Value: "DIR", Description: "Directory used for ingest logs. Default: logs."},
+		{Name: "app-config", Value: "FILE", Description: "Explicit base app config file for shared runtime settings."},
+		{Name: "allow-implicit-config", Description: "Trust an implicitly discovered base app config for ingest writes."},
+		{Name: "approved-output-root", Value: "DIR", Description: "Approved local root for ingest outputs and logs."},
+		{Name: "yes-i-know-what-im-doing", Description: "Bypass config-trust and approved-output-root safety guards."},
+	})
+}
+
+func printRewriteUsage() {
+	fmt.Printf("rewrite applies streamed cleanup rules to JSON, NDJSON, and JSONL\n")
+	fmt.Printf("datasets. Use preview first, then switch to apply once the summary is\n")
+	fmt.Printf("correct.\n\n")
+	fmt.Printf("Usage:\n")
+	fmt.Printf("  %s rewrite [rewrite flags]\n\n", appName)
+	fmt.Printf("Examples:\n")
 	fmt.Printf("  %s rewrite -config examples/rewrite-delete-config.json\n", appName)
+	fmt.Printf("  %s rewrite -config examples/rewrite-update-config.json\n", appName)
+	fmt.Printf("  %s rewrite -path ./test_data -top-level-key customer_id \\\n", appName)
+	fmt.Printf("      -top-level-vals ./ids.csv -mode preview\n\n")
+	fmt.Printf("Operations:\n")
+	fmt.Printf("  delete whole rows by top-level key, delete matching items from nested\n")
+	fmt.Printf("  arrays, or recursively update values with optional ID and state filters.\n")
+	printHelpFlags("Core flags", []helpFlag{
+		{Name: "config", Value: "FILE", Description: "Portable rewrite job definition. Relative paths resolve from this file."},
+		{Name: "path", Value: "PATHS", Description: "Comma-separated list of local paths or gs:// URIs to rewrite."},
+		{Name: "mode", Value: "preview|apply", Description: "Preview reports changes. Apply writes results and creates backups."},
+		{Name: "top-level-key", Value: "FIELD", Description: "Delete whole rows when this top-level key matches."},
+		{Name: "top-level-vals", Value: "VALUES|CSV", Description: "Comma-separated match values or a CSV file path."},
+		{Name: "array-key", Value: "FIELD", Description: "Array field to inspect for nested deletions."},
+		{Name: "array-del-key", Value: "FIELD", Description: "Nested array item key to match for deletion."},
+		{Name: "array-del-vals", Value: "VALUES|CSV", Description: "Comma-separated values or a CSV file path for nested deletions."},
+		{Name: "state-key", Value: "FIELD", Description: "Optional row-level state filter for delete rules."},
+		{Name: "state-value", Value: "VALUE", Description: "Required when -state-key is set."},
+		{Name: "update-key", Value: "FIELD", Description: "Key to update recursively."},
+		{Name: "update-old-value", Value: "VALUE", Description: "Existing value to replace."},
+		{Name: "update-new-value", Value: "VALUE", Description: "Replacement value to write."},
+		{Name: "update-id-key", Value: "FIELD", Description: "Optional row filter key for updates."},
+		{Name: "update-id-vals", Value: "VALUES|CSV", Description: "Comma-separated values or a CSV file path for selective updates."},
+		{Name: "update-state-key", Value: "FIELD", Description: "Optional state filter key for updates."},
+		{Name: "update-state-value", Value: "VALUE", Description: "Required when -update-state-key is set."},
+		{Name: "workers", Value: "N", Description: "Number of concurrent rewrite workers. Default: 8."},
+	})
+	printHelpFlags("Safety and runtime flags", []helpFlag{
+		{Name: "backup-dir", Value: "DIR", Description: "Backup directory used by apply mode."},
+		{Name: "log-path", Value: "DIR", Description: "Directory used for rewrite logs. Default: logs."},
+		{Name: "app-config", Value: "FILE", Description: "Explicit base app config file for shared runtime settings."},
+		{Name: "allow-implicit-config", Description: "Trust an implicitly discovered base app config for apply mode."},
+		{Name: "approved-output-root", Value: "DIR", Description: "Approved local root for apply-mode logs and backups."},
+		{Name: "yes-i-know-what-im-doing", Description: "Bypass config-trust and approved-output-root safety guards."},
+	})
+}
+
+func printHelpFlags(title string, flags []helpFlag) {
+	fmt.Printf("\n%s:\n", title)
+	for _, flag := range flags {
+		printHelpFlag(flag)
+	}
+}
+
+func printHelpFlag(flagInfo helpFlag) {
+	label := "-" + flagInfo.Name
+	if flagInfo.Value != "" {
+		label += " <" + flagInfo.Value + ">"
+	}
+
+	fmt.Printf("  %-42s %s\n", label, flagInfo.Description)
+}
+
+func printCommandUsage(command string) int {
+	switch strings.ToLower(command) {
+	case "analyse", "analyze", "analysis":
+		printAnalysisUsage()
+		return 0
+	case "ingest", "normalize", "normalise":
+		printIngestUsage()
+		return 0
+	case "rewrite":
+		printRewriteUsage()
+		return 0
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown command %q.\n\n", command)
+		printRootUsage()
+		return 1
+	}
+}
+
+func isHelpArg(arg string) bool {
+	switch arg {
+	case "help", "-h", "--help":
+		return true
+	default:
+		return false
+	}
 }
 
 func extractFlagValue(args []string, flagName string) string {

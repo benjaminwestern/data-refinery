@@ -2,13 +2,16 @@ package source
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/storage"
+	"github.com/benjaminwestern/data-refinery/internal/safety"
 	"google.golang.org/api/iterator"
 )
 
@@ -20,9 +23,40 @@ type InputSource interface {
 	Size() int64
 }
 
+// DiscoveryOptions controls which file types are considered processable for a
+// discovery run.
+type DiscoveryOptions struct {
+	AllowedExtensions   []string
+	AllowedContentTypes map[string]bool
+	Description         string
+}
+
+// DefaultJSONDiscoveryOptions returns the discovery settings used by the
+// existing analysis and rewrite workflows.
+func DefaultJSONDiscoveryOptions() DiscoveryOptions {
+	return DiscoveryOptions{
+		AllowedExtensions: []string{".json", ".ndjson", ".jsonl"},
+		AllowedContentTypes: map[string]bool{
+			"application/json":           true,
+			"application/x-ndjson":       true,
+			"application/json-seq":       true,
+			"application/jsonlines":      true,
+			"application/jsonlines+json": true,
+			"application/x-jsonlines":    true,
+		},
+		Description: "JSON, NDJSON, or JSONL",
+	}
+}
+
 // DiscoverAll resolves every supplied path and returns a de-duplicated list of
 // processable sources.
 func DiscoverAll(ctx context.Context, paths []string) ([]InputSource, error) {
+	return DiscoverAllWithOptions(ctx, paths, DefaultJSONDiscoveryOptions())
+}
+
+// DiscoverAllWithOptions resolves every supplied path and returns a
+// de-duplicated list of sources that match the provided discovery rules.
+func DiscoverAllWithOptions(ctx context.Context, paths []string, options DiscoveryOptions) ([]InputSource, error) {
 	var uniqueSources []InputSource
 	discoveredPaths := make(map[string]bool)
 
@@ -31,7 +65,7 @@ func DiscoverAll(ctx context.Context, paths []string) ([]InputSource, error) {
 		if p == "" {
 			continue
 		}
-		sources, err := Discover(ctx, p)
+		sources, err := DiscoverWithOptions(ctx, p, options)
 		if err != nil {
 			return nil, fmt.Errorf("error in path '%s': %w", p, err)
 		}
@@ -53,30 +87,43 @@ func DiscoverAll(ctx context.Context, paths []string) ([]InputSource, error) {
 
 // Discover resolves a single local path or GCS URI into one or more sources.
 func Discover(ctx context.Context, path string) ([]InputSource, error) {
+	return DiscoverWithOptions(ctx, path, DefaultJSONDiscoveryOptions())
+}
+
+// DiscoverWithOptions resolves a single local path or GCS URI into one or
+// more sources using the supplied discovery rules.
+func DiscoverWithOptions(ctx context.Context, path string, options DiscoveryOptions) ([]InputSource, error) {
+	options = normalizeDiscoveryOptions(options)
+
 	if strings.HasPrefix(path, "gs://") {
-		return discoverGCSObjects(ctx, path)
+		return discoverGCSObjects(ctx, path, options)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("invalid path: %w", err)
 	}
 	if !info.IsDir() {
-		if !isProcessableLocalFile(path) {
-			return nil, fmt.Errorf("local path is not a supported JSON/NDJSON file: %s", path)
+		if !matchesLocalFile(path, options) {
+			return nil, fmt.Errorf("local path is not a supported %s file: %s", options.Description, path)
 		}
 		absPath, err := filepath.Abs(path)
 		if err != nil {
 			return nil, fmt.Errorf("could not get absolute path for %s: %w", path, err)
 		}
-		return []InputSource{LocalFileSource{filePath: absPath, size: info.Size()}}, nil
+		return []InputSource{LocalFileSource{
+			filePath: absPath,
+			size:     info.Size(),
+			modTime:  info.ModTime(),
+		}}, nil
 	}
-	return discoverLocalFiles(ctx, path)
+	return discoverLocalFiles(ctx, path, options)
 }
 
 // LocalFileSource implements InputSource for the local filesystem.
 type LocalFileSource struct {
 	filePath string
 	size     int64
+	modTime  time.Time
 }
 
 // Path returns the absolute file path.
@@ -84,7 +131,12 @@ func (lfs LocalFileSource) Path() string { return lfs.filePath }
 
 // Open returns a streaming file reader.
 func (lfs LocalFileSource) Open(_ context.Context) (io.ReadCloser, error) {
-	return os.Open(lfs.filePath)
+	file, err := os.Open(lfs.filePath)
+	if err != nil {
+		return nil, fmt.Errorf("open local file source %q: %w", lfs.filePath, err)
+	}
+
+	return file, nil
 }
 
 // Dir returns the containing directory for the file.
@@ -93,12 +145,16 @@ func (lfs LocalFileSource) Dir() string { return filepath.Dir(lfs.filePath) }
 // Size returns the file size in bytes.
 func (lfs LocalFileSource) Size() int64 { return lfs.size }
 
+// ModTime returns the discovered last-modified time when available.
+func (lfs LocalFileSource) ModTime() time.Time { return lfs.modTime }
+
 // GCSObjectSource implements InputSource for a Google Cloud Storage object.
 type GCSObjectSource struct {
 	bucketName string
 	objectName string
 	size       int64
 	generation int64
+	modTime    time.Time
 }
 
 // Path returns the object's full `gs://` URI.
@@ -120,8 +176,8 @@ func (gcs GCSObjectSource) Open(ctx context.Context) (io.ReadCloser, error) {
 
 	reader, err := objectHandle.NewReader(ctx)
 	if err != nil {
-		client.Close()
-		return nil, err
+		safety.Close(client, "GCS client")
+		return nil, fmt.Errorf("open GCS object reader for %s: %w", gcs.Path(), err)
 	}
 
 	return &gcsReadCloser{reader: reader, client: client}, nil
@@ -145,30 +201,46 @@ func (gcs GCSObjectSource) Generation() int64 {
 	return gcs.generation
 }
 
+// ModTime returns the discovered last-modified time when available.
+func (gcs GCSObjectSource) ModTime() time.Time { return gcs.modTime }
+
 type gcsReadCloser struct {
 	reader *storage.Reader
 	client *storage.Client
 }
 
 func (g *gcsReadCloser) Read(p []byte) (int, error) {
-	return g.reader.Read(p)
+	n, err := g.reader.Read(p)
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return n, io.EOF
+		}
+
+		return n, fmt.Errorf("read GCS object stream: %w", err)
+	}
+
+	return n, nil
 }
 
 func (g *gcsReadCloser) Close() error {
 	readerErr := g.reader.Close()
 	clientErr := g.client.Close()
 	if readerErr != nil {
-		return readerErr
+		return fmt.Errorf("close GCS object reader: %w", readerErr)
 	}
-	return clientErr
+	if clientErr != nil {
+		return fmt.Errorf("close GCS client: %w", clientErr)
+	}
+
+	return nil
 }
 
-func discoverGCSObjects(ctx context.Context, path string) ([]InputSource, error) {
+func discoverGCSObjects(ctx context.Context, path string, options DiscoveryOptions) ([]InputSource, error) {
 	client, err := storage.NewClient(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GCS client: %w. Ensure you are authenticated", err)
 	}
-	defer client.Close()
+	defer safety.Close(client, "GCS client")
 
 	trimmedPath := strings.TrimPrefix(path, "gs://")
 	parts := strings.SplitN(trimmedPath, "/", 2)
@@ -189,14 +261,15 @@ func discoverGCSObjects(ctx context.Context, path string) ([]InputSource, error)
 
 	if prefix != "" {
 		if attrs, err := bucket.Object(prefix).Attrs(ctx); err == nil {
-			if !isProcessableGCSObject(attrs.Name, attrs.ContentType) {
-				return nil, fmt.Errorf("GCS object '%s' is not a supported JSON/NDJSON file", path)
+			if !matchesGCSObject(attrs.Name, attrs.ContentType, options) {
+				return nil, fmt.Errorf("GCS object '%s' is not a supported %s file", path, options.Description)
 			}
 			return []InputSource{GCSObjectSource{
 				bucketName: bucketName,
 				objectName: attrs.Name,
 				size:       attrs.Size,
 				generation: attrs.Generation,
+				modTime:    attrs.Updated,
 			}}, nil
 		}
 	}
@@ -219,42 +292,23 @@ func discoverGCSObjects(ctx context.Context, path string) ([]InputSource, error)
 		if strings.HasSuffix(attrs.Name, "/") {
 			continue
 		}
-		if isProcessableGCSObject(attrs.Name, attrs.ContentType) {
+		if matchesGCSObject(attrs.Name, attrs.ContentType, options) {
 			sources = append(sources, GCSObjectSource{
 				bucketName: bucketName,
 				objectName: attrs.Name,
 				size:       attrs.Size,
 				generation: attrs.Generation,
+				modTime:    attrs.Updated,
 			})
 		}
 	}
 	if len(sources) == 0 {
-		return nil, fmt.Errorf("no processable JSON files found in 'gs://%s' with prefix '%s'", bucketName, prefix)
+		return nil, fmt.Errorf("no supported %s files found in 'gs://%s' with prefix '%s'", options.Description, bucketName, prefix)
 	}
 	return sources, nil
 }
 
-func isProcessableLocalFile(path string) bool {
-	lower := strings.ToLower(path)
-	return strings.HasSuffix(lower, ".json") ||
-		strings.HasSuffix(lower, ".ndjson") ||
-		strings.HasSuffix(lower, ".jsonl")
-}
-
-func isProcessableGCSObject(name, contentType string) bool {
-	allowedMimeTypes := map[string]bool{
-		"application/json":           true,
-		"application/x-ndjson":       true,
-		"application/json-seq":       true,
-		"application/jsonlines":      true,
-		"application/jsonlines+json": true,
-		"application/x-jsonlines":    true,
-	}
-
-	return allowedMimeTypes[contentType] || isProcessableLocalFile(name)
-}
-
-func discoverLocalFiles(ctx context.Context, dirPath string) ([]InputSource, error) {
+func discoverLocalFiles(ctx context.Context, dirPath string, options DiscoveryOptions) ([]InputSource, error) {
 	var sources []InputSource
 	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 		if ctx.Err() != nil {
@@ -263,12 +317,16 @@ func discoverLocalFiles(ctx context.Context, dirPath string) ([]InputSource, err
 		if err != nil {
 			return err
 		}
-		if !info.IsDir() && (strings.HasSuffix(strings.ToLower(path), ".json") || strings.HasSuffix(strings.ToLower(path), ".ndjson") || strings.HasSuffix(strings.ToLower(path), ".jsonl")) {
+		if !info.IsDir() && matchesLocalFile(path, options) {
 			absPath, err := filepath.Abs(path)
 			if err != nil {
 				return fmt.Errorf("could not get absolute path for %s: %w", path, err)
 			}
-			sources = append(sources, LocalFileSource{filePath: absPath, size: info.Size()})
+			sources = append(sources, LocalFileSource{
+				filePath: absPath,
+				size:     info.Size(),
+				modTime:  info.ModTime(),
+			})
 		}
 		return nil
 	})
@@ -276,7 +334,40 @@ func discoverLocalFiles(ctx context.Context, dirPath string) ([]InputSource, err
 		return nil, fmt.Errorf("failed to walk local directory %q: %w", dirPath, err)
 	}
 	if len(sources) == 0 {
-		return nil, fmt.Errorf("no .json, .ndjson, or .jsonl files found in %s", dirPath)
+		return nil, fmt.Errorf("no supported %s files found in %s", options.Description, dirPath)
 	}
 	return sources, nil
+}
+
+func normalizeDiscoveryOptions(options DiscoveryOptions) DiscoveryOptions {
+	if len(options.AllowedExtensions) == 0 && len(options.AllowedContentTypes) == 0 {
+		return DefaultJSONDiscoveryOptions()
+	}
+	if strings.TrimSpace(options.Description) == "" {
+		options.Description = "processable"
+	}
+	return options
+}
+
+func matchesLocalFile(path string, options DiscoveryOptions) bool {
+	options = normalizeDiscoveryOptions(options)
+
+	extension := strings.ToLower(filepath.Ext(path))
+	for _, allowed := range options.AllowedExtensions {
+		if strings.ToLower(strings.TrimSpace(allowed)) == extension {
+			return true
+		}
+	}
+
+	return false
+}
+
+func matchesGCSObject(name, contentType string, options DiscoveryOptions) bool {
+	options = normalizeDiscoveryOptions(options)
+
+	if options.AllowedContentTypes[strings.ToLower(strings.TrimSpace(contentType))] {
+		return true
+	}
+
+	return matchesLocalFile(name, options)
 }

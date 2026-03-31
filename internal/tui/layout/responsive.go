@@ -1,3 +1,4 @@
+// Package layout defines responsive sizing and spacing rules for the TUI.
 package layout
 
 import (
@@ -7,8 +8,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// LayoutConstraints defines the responsive layout system boundaries
-type LayoutConstraints struct {
+// Constraints defines the responsive layout system boundaries.
+type Constraints struct {
 	// Terminal dimensions
 	Width  int
 	Height int
@@ -26,13 +27,13 @@ type LayoutConstraints struct {
 	MaxCardWidth  int
 }
 
-// ResponsiveLayout manages adaptive UI layout based on terminal size
+// ResponsiveLayout manages adaptive UI layout based on terminal size.
 type ResponsiveLayout struct {
-	constraints LayoutConstraints
+	constraints Constraints
 	styles      ResponsiveStyles
 }
 
-// ResponsiveStyles contains size-adapted styling
+// ResponsiveStyles contains size-adapted styling.
 type ResponsiveStyles struct {
 	// Basic styles
 	Title       lipgloss.Style
@@ -55,7 +56,7 @@ type ResponsiveStyles struct {
 	Footer  lipgloss.Style
 }
 
-// NewResponsiveLayout creates a new responsive layout system
+// NewResponsiveLayout creates a new responsive layout system.
 func NewResponsiveLayout(width, height int) *ResponsiveLayout {
 	constraints := calculateConstraints(width, height)
 	styles := createResponsiveStyles(constraints)
@@ -66,8 +67,8 @@ func NewResponsiveLayout(width, height int) *ResponsiveLayout {
 	}
 }
 
-// calculateConstraints determines layout boundaries based on terminal size
-func calculateConstraints(width, height int) LayoutConstraints {
+// calculateConstraints determines layout boundaries based on terminal size.
+func calculateConstraints(width, height int) Constraints {
 	// Handle edge cases
 	if width <= 0 {
 		width = 80
@@ -109,7 +110,7 @@ func calculateConstraints(width, height int) LayoutConstraints {
 		maxCardWidth = contentWidth
 	}
 
-	return LayoutConstraints{
+	return Constraints{
 		Width:         width,
 		Height:        height,
 		IsNarrow:      isNarrow,
@@ -123,8 +124,8 @@ func calculateConstraints(width, height int) LayoutConstraints {
 	}
 }
 
-// createResponsiveStyles generates size-adapted styling
-func createResponsiveStyles(constraints LayoutConstraints) ResponsiveStyles {
+// createResponsiveStyles generates size-adapted styling.
+func createResponsiveStyles(constraints Constraints) ResponsiveStyles {
 	// Color scheme
 	primaryColor := lipgloss.Color("63")
 	secondaryColor := lipgloss.Color("212")
@@ -165,7 +166,6 @@ func createResponsiveStyles(constraints LayoutConstraints) ResponsiveStyles {
 
 		menuStyle = lipgloss.NewStyle().
 			Width(constraints.ContentWidth)
-
 	} else if constraints.IsWide {
 		// Wide terminal: full styling, spacious layout
 		titleStyle = lipgloss.NewStyle().
@@ -201,7 +201,6 @@ func createResponsiveStyles(constraints LayoutConstraints) ResponsiveStyles {
 
 		menuStyle = lipgloss.NewStyle().
 			Width(constraints.MaxCardWidth)
-
 	} else {
 		// Standard terminal: balanced styling
 		titleStyle = lipgloss.NewStyle().
@@ -303,23 +302,23 @@ func createResponsiveStyles(constraints LayoutConstraints) ResponsiveStyles {
 	}
 }
 
-// Update refreshes the layout for new terminal dimensions
+// Update refreshes the layout for new terminal dimensions.
 func (rl *ResponsiveLayout) Update(width, height int) {
 	rl.constraints = calculateConstraints(width, height)
 	rl.styles = createResponsiveStyles(rl.constraints)
 }
 
-// GetConstraints returns the current layout constraints
-func (rl *ResponsiveLayout) GetConstraints() LayoutConstraints {
+// GetConstraints returns the current layout constraints.
+func (rl *ResponsiveLayout) GetConstraints() Constraints {
 	return rl.constraints
 }
 
-// GetStyles returns the current responsive styles
+// GetStyles returns the current responsive styles.
 func (rl *ResponsiveLayout) GetStyles() ResponsiveStyles {
 	return rl.styles
 }
 
-// WrapContent wraps content appropriately for the current terminal size
+// WrapContent wraps content appropriately for the current terminal size.
 func (rl *ResponsiveLayout) WrapContent(content string) string {
 	if rl.constraints.IsNarrow {
 		// For narrow terminals, wrap more aggressively
@@ -340,7 +339,7 @@ func (rl *ResponsiveLayout) WrapContent(content string) string {
 		Render(content)
 }
 
-// FormatMenu formats menu items appropriately for terminal size
+// FormatMenu formats menu items appropriately for terminal size.
 func (rl *ResponsiveLayout) FormatMenu(items []MenuItem) string {
 	var content strings.Builder
 
@@ -393,35 +392,35 @@ func (rl *ResponsiveLayout) FormatMenu(items []MenuItem) string {
 	return content.String()
 }
 
-// FormatHelp formats help text appropriately for terminal size
-func (rl *ResponsiveLayout) FormatHelp(shortcuts []HelpShortcut, tip string) string {
+// FormatHelp formats help text appropriately for terminal size.
+func (rl *ResponsiveLayout) FormatHelp(shortcuts []helpShortcut, tip string) string {
 	var content strings.Builder
 
 	if !rl.constraints.IsNarrow {
 		content.WriteString("📋 Navigation:\n")
 		for _, shortcut := range shortcuts {
-			content.WriteString(fmt.Sprintf("  %-12s %s\n", shortcut.Keys, shortcut.Description))
+			fmt.Fprintf(&content, "  %-12s %s\n", shortcut.Keys, shortcut.Description)
 		}
 		if tip != "" {
-			content.WriteString(fmt.Sprintf("\n💡 Tip: %s", tip))
+			fmt.Fprintf(&content, "\n💡 Tip: %s", tip)
 		}
 	} else {
 		// Compact help for narrow terminals
 		content.WriteString("Navigation: ")
-		var shortKeys []string
+		shortKeys := make([]string, 0, len(shortcuts))
 		for _, shortcut := range shortcuts {
 			shortKeys = append(shortKeys, shortcut.Keys)
 		}
 		content.WriteString(strings.Join(shortKeys, ", "))
 		if tip != "" {
-			content.WriteString(fmt.Sprintf("\nTip: %s", tip))
+			fmt.Fprintf(&content, "\nTip: %s", tip)
 		}
 	}
 
 	return rl.styles.Help.Render(content.String())
 }
 
-// FormatError formats error messages appropriately for terminal size
+// FormatError formats error messages appropriately for terminal size.
 func (rl *ResponsiveLayout) FormatError(err error) string {
 	var content strings.Builder
 
@@ -454,7 +453,7 @@ func (rl *ResponsiveLayout) FormatError(err error) string {
 	return box
 }
 
-// Helper structures for formatting
+// MenuItem represents a single selectable item in a rendered menu.
 type MenuItem struct {
 	Title       string
 	Description string
@@ -463,7 +462,7 @@ type MenuItem struct {
 	Enabled     bool
 }
 
-type HelpShortcut struct {
+type helpShortcut struct {
 	Keys        string
 	Description string
 }

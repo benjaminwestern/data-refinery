@@ -14,7 +14,7 @@ import (
 	"github.com/benjaminwestern/data-refinery/internal/tui/layout"
 )
 
-// ScalableComponent represents a component that can adapt to different terminal sizes
+// ScalableComponent represents a component that can adapt to different terminal sizes.
 type ScalableComponent interface {
 	// Update the component for new terminal dimensions
 	UpdateSize(layout *layout.ResponsiveLayout)
@@ -22,7 +22,7 @@ type ScalableComponent interface {
 	Render(layout *layout.ResponsiveLayout) string
 }
 
-// ScalableProgress is a progress bar that adapts to terminal size
+// ScalableProgress is a progress bar that adapts to terminal size.
 type ScalableProgress struct {
 	progress progress.Model
 	label    string
@@ -30,7 +30,7 @@ type ScalableProgress struct {
 	details  string
 }
 
-// NewScalableProgress creates a new adaptive progress bar
+// NewScalableProgress creates a new adaptive progress bar.
 func NewScalableProgress(label string) *ScalableProgress {
 	p := progress.New(progress.WithDefaultGradient())
 	return &ScalableProgress{
@@ -40,7 +40,7 @@ func NewScalableProgress(label string) *ScalableProgress {
 	}
 }
 
-// UpdateSize adjusts the progress bar for new terminal dimensions
+// UpdateSize adjusts the progress bar for new terminal dimensions.
 func (sp *ScalableProgress) UpdateSize(layout *layout.ResponsiveLayout) {
 	constraints := layout.GetConstraints()
 
@@ -56,17 +56,17 @@ func (sp *ScalableProgress) UpdateSize(layout *layout.ResponsiveLayout) {
 	sp.progress.Width = width
 }
 
-// SetPercent updates the progress percentage
+// SetPercent updates the progress percentage.
 func (sp *ScalableProgress) SetPercent(percent float64) {
 	sp.percent = percent
 }
 
-// SetDetails updates the progress details text
+// SetDetails updates the progress details text.
 func (sp *ScalableProgress) SetDetails(details string) {
 	sp.details = details
 }
 
-// Update handles progress bar updates
+// Update handles progress bar updates.
 func (sp *ScalableProgress) Update(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
 	progressModel, cmd := sp.progress.Update(msg)
@@ -76,7 +76,7 @@ func (sp *ScalableProgress) Update(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
-// Render displays the progress bar with current size constraints
+// Render displays the progress bar with current size constraints.
 func (sp *ScalableProgress) Render(layout *layout.ResponsiveLayout) string {
 	constraints := layout.GetConstraints()
 	styles := layout.GetStyles()
@@ -124,14 +124,14 @@ func (sp *ScalableProgress) Render(layout *layout.ResponsiveLayout) string {
 	return content.String()
 }
 
-// ScalableSpinner is a spinner that adapts to terminal size
+// ScalableSpinner is a spinner that adapts to terminal size.
 type ScalableSpinner struct {
 	spinner spinner.Model
 	label   string
 	timing  time.Duration
 }
 
-// NewScalableSpinner creates a new adaptive spinner
+// NewScalableSpinner creates a new adaptive spinner.
 func NewScalableSpinner(label string) *ScalableSpinner {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
@@ -143,7 +143,7 @@ func NewScalableSpinner(label string) *ScalableSpinner {
 	}
 }
 
-// UpdateSize adjusts the spinner for new terminal dimensions
+// UpdateSize adjusts the spinner for new terminal dimensions.
 func (ss *ScalableSpinner) UpdateSize(layout *layout.ResponsiveLayout) {
 	// Spinner doesn't need size adjustments, but we can modify style
 	constraints := layout.GetConstraints()
@@ -157,19 +157,19 @@ func (ss *ScalableSpinner) UpdateSize(layout *layout.ResponsiveLayout) {
 	}
 }
 
-// SetTiming updates the timing information
+// SetTiming updates the timing information.
 func (ss *ScalableSpinner) SetTiming(timing time.Duration) {
 	ss.timing = timing
 }
 
-// Update handles spinner updates
+// Update handles spinner updates.
 func (ss *ScalableSpinner) Update(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
 	ss.spinner, cmd = ss.spinner.Update(msg)
 	return cmd
 }
 
-// Render displays the spinner with current size constraints
+// Render displays the spinner with current size constraints.
 func (ss *ScalableSpinner) Render(layout *layout.ResponsiveLayout) string {
 	constraints := layout.GetConstraints()
 	styles := layout.GetStyles()
@@ -182,11 +182,11 @@ func (ss *ScalableSpinner) Render(layout *layout.ResponsiveLayout) string {
 
 	if constraints.IsNarrow {
 		// Compact format for narrow terminals
-		content.WriteString(fmt.Sprintf("%s %s", spinnerView, labelText))
+		fmt.Fprintf(&content, "%s %s", spinnerView, labelText)
 	} else {
 		// Spacious format for wider terminals
 		statusStyle := styles.Subtitle.Foreground(lipgloss.Color("63"))
-		content.WriteString(fmt.Sprintf("%s %s", spinnerView, statusStyle.Render(labelText)))
+		fmt.Fprintf(&content, "%s %s", spinnerView, statusStyle.Render(labelText))
 	}
 
 	// Timing information
@@ -203,7 +203,7 @@ func (ss *ScalableSpinner) Render(layout *layout.ResponsiveLayout) string {
 	return content.String()
 }
 
-// ScalableTextInput is a text input that adapts to terminal size
+// ScalableTextInput is a text input that adapts to terminal size.
 type ScalableTextInput struct {
 	input       textinput.Model
 	label       string
@@ -211,7 +211,7 @@ type ScalableTextInput struct {
 	help        string
 }
 
-// NewScalableTextInput creates a new adaptive text input
+// NewScalableTextInput creates a new adaptive text input.
 func NewScalableTextInput(label, placeholder, help string) *ScalableTextInput {
 	input := textinput.New()
 	input.Placeholder = placeholder
@@ -224,7 +224,7 @@ func NewScalableTextInput(label, placeholder, help string) *ScalableTextInput {
 	}
 }
 
-// UpdateSize adjusts the text input for new terminal dimensions
+// UpdateSize adjusts the text input for new terminal dimensions.
 func (sti *ScalableTextInput) UpdateSize(layout *layout.ResponsiveLayout) {
 	constraints := layout.GetConstraints()
 
@@ -241,34 +241,34 @@ func (sti *ScalableTextInput) UpdateSize(layout *layout.ResponsiveLayout) {
 	sti.input.Width = width
 }
 
-// SetValue sets the input value
+// SetValue sets the input value.
 func (sti *ScalableTextInput) SetValue(value string) {
 	sti.input.SetValue(value)
 }
 
-// GetValue returns the current input value
+// GetValue returns the current input value.
 func (sti *ScalableTextInput) GetValue() string {
 	return sti.input.Value()
 }
 
-// Focus focuses the input
+// Focus focuses the input.
 func (sti *ScalableTextInput) Focus() {
 	sti.input.Focus()
 }
 
-// Blur blurs the input
+// Blur blurs the input.
 func (sti *ScalableTextInput) Blur() {
 	sti.input.Blur()
 }
 
-// Update handles text input updates
+// Update handles text input updates.
 func (sti *ScalableTextInput) Update(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
 	sti.input, cmd = sti.input.Update(msg)
 	return cmd
 }
 
-// Render displays the text input with current size constraints
+// Render displays the text input with current size constraints.
 func (sti *ScalableTextInput) Render(layout *layout.ResponsiveLayout) string {
 	constraints := layout.GetConstraints()
 	styles := layout.GetStyles()
@@ -309,7 +309,7 @@ func (sti *ScalableTextInput) Render(layout *layout.ResponsiveLayout) string {
 	return content.String()
 }
 
-// ScalableMenu is a menu that adapts to terminal size
+// ScalableMenu is a menu that adapts to terminal size.
 type ScalableMenu struct {
 	title       string
 	description string
@@ -318,7 +318,7 @@ type ScalableMenu struct {
 	helpText    string
 }
 
-// NewScalableMenu creates a new adaptive menu
+// NewScalableMenu creates a new adaptive menu.
 func NewScalableMenu(title, description string) *ScalableMenu {
 	return &ScalableMenu{
 		title:       title,
@@ -328,7 +328,7 @@ func NewScalableMenu(title, description string) *ScalableMenu {
 	}
 }
 
-// AddItem adds a menu item
+// AddItem adds a menu item.
 func (sm *ScalableMenu) AddItem(title, description, status string, enabled bool) {
 	sm.items = append(sm.items, layout.MenuItem{
 		Title:       title,
@@ -339,19 +339,19 @@ func (sm *ScalableMenu) AddItem(title, description, status string, enabled bool)
 	})
 }
 
-// SetCursor sets the current cursor position
+// SetCursor sets the current cursor position.
 func (sm *ScalableMenu) SetCursor(cursor int) {
 	if cursor >= 0 && cursor < len(sm.items) {
 		sm.cursor = cursor
 	}
 }
 
-// GetCursor returns the current cursor position
+// GetCursor returns the current cursor position.
 func (sm *ScalableMenu) GetCursor() int {
 	return sm.cursor
 }
 
-// GetSelectedItem returns the currently selected item
+// GetSelectedItem returns the currently selected item.
 func (sm *ScalableMenu) GetSelectedItem() *layout.MenuItem {
 	if sm.cursor >= 0 && sm.cursor < len(sm.items) {
 		return &sm.items[sm.cursor]
@@ -359,18 +359,18 @@ func (sm *ScalableMenu) GetSelectedItem() *layout.MenuItem {
 	return nil
 }
 
-// SetHelpText sets the help text
+// SetHelpText sets the help text.
 func (sm *ScalableMenu) SetHelpText(help string) {
 	sm.helpText = help
 }
 
-// UpdateSize adjusts the menu for new terminal dimensions
-func (sm *ScalableMenu) UpdateSize(layout *layout.ResponsiveLayout) {
+// UpdateSize adjusts the menu for new terminal dimensions.
+func (sm *ScalableMenu) UpdateSize(_ *layout.ResponsiveLayout) {
 	// Menu doesn't need specific size adjustments
 	// The layout system handles the formatting
 }
 
-// Render displays the menu with current size constraints
+// Render displays the menu with current size constraints.
 func (sm *ScalableMenu) Render(layout *layout.ResponsiveLayout) string {
 	constraints := layout.GetConstraints()
 	styles := layout.GetStyles()
@@ -418,14 +418,14 @@ func (sm *ScalableMenu) Render(layout *layout.ResponsiveLayout) string {
 	return content.String()
 }
 
-// ScalableCard is a card container that adapts to terminal size
+// ScalableCard is a card container that adapts to terminal size.
 type ScalableCard struct {
 	title   string
 	content string
 	footer  string
 }
 
-// NewScalableCard creates a new adaptive card
+// NewScalableCard creates a new adaptive card.
 func NewScalableCard(title, content, footer string) *ScalableCard {
 	return &ScalableCard{
 		title:   title,
@@ -434,17 +434,17 @@ func NewScalableCard(title, content, footer string) *ScalableCard {
 	}
 }
 
-// SetContent updates the card content
+// SetContent updates the card content.
 func (sc *ScalableCard) SetContent(content string) {
 	sc.content = content
 }
 
-// UpdateSize adjusts the card for new terminal dimensions
-func (sc *ScalableCard) UpdateSize(layout *layout.ResponsiveLayout) {
+// UpdateSize adjusts the card for new terminal dimensions.
+func (sc *ScalableCard) UpdateSize(_ *layout.ResponsiveLayout) {
 	// Card adapts automatically through the layout system
 }
 
-// Render displays the card with current size constraints
+// Render displays the card with current size constraints.
 func (sc *ScalableCard) Render(layout *layout.ResponsiveLayout) string {
 	constraints := layout.GetConstraints()
 	styles := layout.GetStyles()
@@ -492,7 +492,7 @@ func (sc *ScalableCard) Render(layout *layout.ResponsiveLayout) string {
 	return cardStyle.Render(content.String())
 }
 
-// ScalableReport is a report display that adapts to terminal size
+// ScalableReport is a report display that adapts to terminal size.
 type ScalableReport struct {
 	title    string
 	sections []ReportSection
@@ -500,14 +500,14 @@ type ScalableReport struct {
 	actions  []string
 }
 
-// ReportSection represents a section in the report
+// ReportSection represents a section in the report.
 type ReportSection struct {
 	Title   string
 	Content string
 	Items   []string
 }
 
-// NewScalableReport creates a new adaptive report
+// NewScalableReport creates a new adaptive report.
 func NewScalableReport(title string) *ScalableReport {
 	return &ScalableReport{
 		title:    title,
@@ -516,7 +516,7 @@ func NewScalableReport(title string) *ScalableReport {
 	}
 }
 
-// AddSection adds a report section
+// AddSection adds a report section.
 func (sr *ScalableReport) AddSection(title, content string, items []string) {
 	sr.sections = append(sr.sections, ReportSection{
 		Title:   title,
@@ -525,22 +525,22 @@ func (sr *ScalableReport) AddSection(title, content string, items []string) {
 	})
 }
 
-// SetSummary sets the report summary
+// SetSummary sets the report summary.
 func (sr *ScalableReport) SetSummary(summary string) {
 	sr.summary = summary
 }
 
-// SetActions sets the available actions
+// SetActions sets the available actions.
 func (sr *ScalableReport) SetActions(actions []string) {
 	sr.actions = actions
 }
 
-// UpdateSize adjusts the report for new terminal dimensions
-func (sr *ScalableReport) UpdateSize(layout *layout.ResponsiveLayout) {
+// UpdateSize adjusts the report for new terminal dimensions.
+func (sr *ScalableReport) UpdateSize(_ *layout.ResponsiveLayout) {
 	// Report adapts automatically through the layout system
 }
 
-// Render displays the report with current size constraints
+// Render displays the report with current size constraints.
 func (sr *ScalableReport) Render(layout *layout.ResponsiveLayout) string {
 	constraints := layout.GetConstraints()
 	styles := layout.GetStyles()
