@@ -8,7 +8,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/xuri/excelize/v2 v2.10.1
-	google.golang.org/api v0.273.0
+	google.golang.org/api v0.274.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
