@@ -19,6 +19,8 @@ type mockComponent struct {
 	initCnt   int
 	focusCnt  int
 	blurCnt   int
+	width     int
+	height    int
 	mutex     sync.RWMutex
 }
 
@@ -61,6 +63,13 @@ func (m *mockComponent) IsFocused() bool {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 	return m.focused
+}
+
+func (m *mockComponent) SetSize(width, height int) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	m.width = width
+	m.height = height
 }
 
 func (m *mockComponent) getCounts() (int, int, int, int, int) {
@@ -310,6 +319,59 @@ func TestComponentManagerConcurrentAccess(t *testing.T) {
 	// Should not crash and should have valid state
 	if manager.state.ViewState != ViewMenu {
 		t.Error("Expected view state to remain ViewMenu")
+	}
+}
+
+func TestComponentManagerConcurrentMapAccessRegression(t *testing.T) {
+	memManager := memory.NewMemoryManager(1024) // 1GB
+	stateManager, err := state.NewStateManager("./test_state", "test-session")
+	if err != nil {
+		t.Fatalf("Failed to create state manager: %v", err)
+	}
+	defer stateManager.Close()
+	sharedState := &SharedState{
+		MemoryManager: memManager,
+		StateManager:  stateManager,
+		ViewState:     ViewMenu,
+		Config:        &config.Config{},
+	}
+	manager := NewComponentManager(sharedState)
+
+	component := &mockComponent{id: "component"}
+	manager.RegisterComponent(ViewMenu, component)
+
+	const iterations = 500
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(3)
+
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				manager.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			}
+		}()
+
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				manager.View()
+			}
+		}()
+
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				manager.Update(tea.WindowSizeMsg{Width: 80 + j%5, Height: 24 + j%3})
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	if manager.GetComponent(ViewMenu) == nil {
+		t.Fatal("Expected menu component to remain registered")
 	}
 }
 

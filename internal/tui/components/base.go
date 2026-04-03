@@ -235,14 +235,14 @@ func (cm *ComponentManager) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Handle global messages first
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		cm.mu.Lock()
+		defer cm.mu.Unlock()
 		cm.progress.Width = msg.Width - 4
-		cm.mu.RLock()
 		for _, component := range cm.components {
 			if sizable, ok := component.(interface{ SetSize(int, int) }); ok {
 				sizable.SetSize(msg.Width, msg.Height)
 			}
 		}
-		cm.mu.RUnlock()
 		return cm, nil
 
 	case tea.KeyMsg:
@@ -265,8 +265,8 @@ func (cm *ComponentManager) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if component := cm.GetComponent(cm.state.ViewState); component != nil {
 		updatedComponent, cmd := component.Update(msg)
 		cm.mu.Lock()
+		defer cm.mu.Unlock()
 		cm.components[cm.state.ViewState] = updatedComponent
-		cm.mu.Unlock()
 		return cm, cmd
 	}
 
