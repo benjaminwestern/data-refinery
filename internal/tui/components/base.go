@@ -4,6 +4,7 @@ package components
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/progress"
@@ -170,6 +171,7 @@ type PurgeResultMsg struct {
 
 // ComponentManager manages multiple components and their interactions.
 type ComponentManager struct {
+	mu         sync.RWMutex
 	components map[ViewState]Component
 	state      *SharedState
 	spinner    spinner.Model
@@ -216,11 +218,15 @@ func NewComponentManager(state *SharedState) *ComponentManager {
 
 // RegisterComponent registers a component for a specific view state.
 func (cm *ComponentManager) RegisterComponent(viewState ViewState, component Component) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
 	cm.components[viewState] = component
 }
 
 // GetComponent returns the component for a specific view state.
 func (cm *ComponentManager) GetComponent(viewState ViewState) Component {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
 	return cm.components[viewState]
 }
 
@@ -230,11 +236,13 @@ func (cm *ComponentManager) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		cm.progress.Width = msg.Width - 4
+		cm.mu.RLock()
 		for _, component := range cm.components {
 			if sizable, ok := component.(interface{ SetSize(int, int) }); ok {
 				sizable.SetSize(msg.Width, msg.Height)
 			}
 		}
+		cm.mu.RUnlock()
 		return cm, nil
 
 	case tea.KeyMsg:
@@ -256,7 +264,9 @@ func (cm *ComponentManager) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Delegate to current component
 	if component := cm.GetComponent(cm.state.ViewState); component != nil {
 		updatedComponent, cmd := component.Update(msg)
+		cm.mu.Lock()
 		cm.components[cm.state.ViewState] = updatedComponent
+		cm.mu.Unlock()
 		return cm, cmd
 	}
 
